@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Secrets
+.env
+
+# Test artifacts
+tmp/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Pi sessions
+.pi/sessions/

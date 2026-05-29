@@ -1,0 +1,390 @@
+/**
+ * Discussion Mode Extension
+ *
+ * Read-only research mode that encourages the agent to explore the codebase
+ * and ask the user clarifying questions before making any changes.
+ *
+ * Features:
+ * - /discuss [topic] command to enter discussion mode
+ * - /discuss off | exit to leave discussion mode
+ * - Tools restricted to read-only + ask_user_question
+ * - Bash restricted to safe read-only commands
+ * - Custom ask_user_question tool for structured Q&A
+ * - System prompt injected per-turn to bias toward exploration
+ * - State persists across sessions and forks
+ */
+
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+
+// ── Constants ──
+
+const STATUS_KEY = "discussion-mode";
+const STATE_ENTRY_TYPE = "discussion-mode-state";
+const ASK_TOOL_NAME = "ask_user_question";
+
+const DISCUSSION_TOOLS = ["read", "bash", "grep", "find", "ls", ASK_TOOL_NAME];
+const NORMAL_TOOLS = ["read", "bash", "edit", "write"];
+
+// ── Safe Bash Filtering ──
+
+const DESTRUCTIVE_PATTERNS = [
+	/\brm\b/i,
+	/\brmdir\b/i,
+	/\bmv\b/i,
+	/\bcp\b/i,
+	/\bmkdir\b/i,
+	/\btouch\b/i,
+	/\bchmod\b/i,
+	/\bchown\b/i,
+	/\bchgrp\b/i,
+	/\bln\b/i,
+	/\btee\b/i,
+	/\btruncate\b/i,
+	/\bdd\b/i,
+	/\bshred\b/i,
+	/(^|[^<])>(?!>)/,
+	/>>/,
+	/\bnpm\s+(install|uninstall|update|ci|link|publish)/i,
+	/\byarn\s+(add|remove|install|publish)/i,
+	/\bpnpm\s+(add|remove|install|publish)/i,
+	/\bpip\s+(install|uninstall)/i,
+	/\bapt(-get)?\s+(install|remove|purge|update|upgrade)/i,
+	/\bbrew\s+(install|uninstall|upgrade)/i,
+	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|branch\s+-[dD]|stash|cherry-pick|revert|tag|init|clone)/i,
+	/\bsudo\b/i,
+	/\bsu\b/i,
+	/\bkill\b/i,
+	/\bpkill\b/i,
+	/\bkillall\b/i,
+	/\breboot\b/i,
+	/\bshutdown\b/i,
+	/\bsystemctl\s+(start|stop|restart|enable|disable)/i,
+	/\bservice\s+\S+\s+(start|stop|restart)/i,
+	/\b(vim?|nano|emacs|code|subl)\b/i,
+];
+
+const SAFE_PATTERNS = [
+	/^\s*cat\b/,
+	/^\s*head\b/,
+	/^\s*tail\b/,
+	/^\s*less\b/,
+	/^\s*more\b/,
+	/^\s*grep\b/,
+	/^\s*find\b/,
+	/^\s*ls\b/,
+	/^\s*pwd\b/,
+	/^\s*echo\b/,
+	/^\s*printf\b/,
+	/^\s*wc\b/,
+	/^\s*sort\b/,
+	/^\s*uniq\b/,
+	/^\s*diff\b/,
+	/^\s*file\b/,
+	/^\s*stat\b/,
+	/^\s*du\b/,
+	/^\s*df\b/,
+	/^\s*tree\b/,
+	/^\s*which\b/,
+	/^\s*whereis\b/,
+	/^\s*type\b/,
+	/^\s*env\b/,
+	/^\s*printenv\b/,
+	/^\s*uname\b/,
+	/^\s*whoami\b/,
+	/^\s*id\b/,
+	/^\s*date\b/,
+	/^\s*cal\b/,
+	/^\s*uptime\b/,
+	/^\s*ps\b/,
+	/^\s*top\b/,
+	/^\s*htop\b/,
+	/^\s*free\b/,
+	/^\s*git\s+(status|log|diff|show|branch|remote|config\s+--get)/i,
+	/^\s*git\s+ls-/i,
+	/^\s*npm\s+(list|ls|view|info|search|outdated|audit)/i,
+	/^\s*yarn\s+(list|info|why|audit)/i,
+	/^\s*node\s+--version/i,
+	/^\s*python\s+--version/i,
+	/^\s*curl\s/i,
+	/^\s*wget\s+-O\s*-/i,
+	/^\s*jq\b/,
+	/^\s*sed\s+-n/i,
+	/^\s*awk\b/,
+	/^\s*rg\b/,
+	/^\s*fd\b/,
+	/^\s*bat\b/,
+	/^\s*eza\b/,
+];
+
+function isSafeCommand(command: string): boolean {
+	const isDestructive = DESTRUCTIVE_PATTERNS.some((p) => p.test(command));
+	const isSafe = SAFE_PATTERNS.some((p) => p.test(command));
+	return !isDestructive && isSafe;
+}
+
+// ── Types ──
+
+interface DiscussionState {
+	enabled: boolean;
+}
+
+interface QuestionOption {
+	label: string;
+	description: string;
+}
+
+interface Question {
+	id: string;
+	header: string;
+	question: string;
+	options: QuestionOption[];
+}
+
+// ── System Prompt ──
+
+const DISCUSSION_SYSTEM_PROMPT = `You are in discussion mode — a read-only research mode for deep codebase exploration.
+
+Core rules:
+- Do NOT edit files, run write tools, or make any changes to the project.
+- Your goal: understand the problem deeply through research and discussion.
+- Explore the codebase thoroughly before asking questions.
+- When you encounter ambiguity, ask the user clarifying questions using the ask_user_question tool.
+- Summarize your findings and propose next steps. Do NOT start implementing.
+
+Available tools: read, bash (safe commands only), grep, find, ls, ask_user_question
+Blocked tools: edit, write
+
+When you are ready to exit discussion mode and start implementing, tell the user to run /discuss off.`;
+
+// ── Extension ──
+
+export default function discussionMode(pi: ExtensionAPI): void {
+	// ── Module-level state ──
+	const state: DiscussionState = { enabled: false };
+	let previousTools: string[] | undefined;
+
+	// ── Helpers ──
+
+	function updateStatus(ctx: ExtensionContext): void {
+		if (state.enabled) {
+			ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("accent", "💬 discussing"));
+		} else {
+			ctx.ui.setStatus(STATUS_KEY, undefined);
+		}
+	}
+
+	function persistState(): void {
+		pi.appendEntry(STATE_ENTRY_TYPE, { enabled: state.enabled });
+	}
+
+	function enterMode(ctx: ExtensionContext, topic?: string): void {
+		if (state.enabled) {
+			ctx.ui.notify("Already in discussion mode.", "info");
+			return;
+		}
+
+		// Save current tools before switching
+		previousTools = pi.getActiveTools();
+		state.enabled = true;
+
+		// Activate discussion tools (includes ask_user_question)
+		pi.setActiveTools(DISCUSSION_TOOLS);
+
+		persistState();
+		updateStatus(ctx);
+
+		ctx.ui.notify(`Discussion mode enabled. Tools: ${DISCUSSION_TOOLS.join(", ")}`, "info");
+
+		// If a topic was provided, send it as a user message
+		if (topic?.trim()) {
+			pi.sendUserMessage(topic.trim());
+		}
+	}
+
+	function exitMode(ctx: ExtensionContext): void {
+		if (!state.enabled) {
+			ctx.ui.notify("Not in discussion mode.", "info");
+			return;
+		}
+
+		state.enabled = false;
+
+		// Restore previous tools
+		if (previousTools && previousTools.length > 0) {
+			pi.setActiveTools(previousTools);
+		} else {
+			pi.setActiveTools(NORMAL_TOOLS);
+		}
+		previousTools = undefined;
+
+		persistState();
+		updateStatus(ctx);
+
+		ctx.ui.notify("Discussion mode disabled. Full tool access restored.", "info");
+	}
+
+	function handleDiscussCommand(args: string, ctx: ExtensionContext): void {
+		const trimmed = args.trim();
+
+		// Explicit exit
+		if (trimmed === "off" || trimmed === "exit") {
+			exitMode(ctx);
+			return;
+		}
+
+		// No args → enter discussion mode
+		if (!trimmed) {
+			if (state.enabled) {
+				ctx.ui.notify("Already in discussion mode. Provide a topic or /discuss off to exit.", "info");
+				return;
+			}
+			enterMode(ctx);
+			return;
+		}
+
+		// Has topic → enter mode (or send topic if already in mode)
+		if (state.enabled) {
+			pi.sendUserMessage(trimmed);
+		} else {
+			enterMode(ctx, trimmed);
+		}
+	}
+
+	// ── Tool Registration ──
+
+	pi.registerTool({
+		name: ASK_TOOL_NAME,
+		label: "Ask User Question",
+		description:
+			"Ask the user 1-3 structured clarifying questions with 2-4 options each. Use this when you encounter ambiguity or need to understand user preferences during discussion mode.",
+		parameters: Type.Object({
+			questions: Type.Array(
+				Type.Object({
+					id: Type.String({ description: "Unique snake_case identifier for this question" }),
+					header: Type.String({ description: "Short label for the question, ≤12 characters" }),
+					question: Type.String({ description: "One-sentence prompt for the user" }),
+					options: Type.Array(
+						Type.Object({
+							label: Type.String({ description: "Short option label shown to the user" }),
+							description: Type.String({ description: "Longer description of what this option means" }),
+						}),
+						{ minItems: 2, maxItems: 4, description: "2-4 selectable options" },
+					),
+				}),
+				{ minItems: 1, maxItems: 3, description: "1-3 questions to ask the user" },
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const answers: Record<string, string> = {};
+
+			for (const q of params.questions) {
+				const choices = [
+					...q.options.map((opt: QuestionOption) => `${opt.label}: ${opt.description}`),
+					"Other (free-form response)",
+				];
+
+				const choice = await ctx.ui.select(`${q.header}: ${q.question}`, choices);
+
+				if (!choice) {
+					answers[q.id] = "(no answer)";
+					continue;
+				}
+
+				if (choice.startsWith("Other")) {
+					const freeForm = await ctx.ui.editor(`Your answer for: ${q.question}`, "");
+					answers[q.id] = freeForm?.trim() || "(no answer)";
+				} else {
+					// Extract label from "label: description" format
+					const label = choice.split(":")[0].trim();
+					answers[q.id] = label;
+				}
+			}
+
+			const summary = Object.entries(answers)
+				.map(([id, answer]) => `- **${id}**: ${answer}`)
+				.join("\n");
+
+			return {
+				content: [{ type: "text", text: `User answered:\n\n${summary}` }],
+				details: { answers },
+			};
+		},
+	});
+
+	// ── Command Registration ──
+
+	pi.registerCommand("discuss", {
+		description: "Enter discussion mode for read-only research. Use /discuss off to exit.",
+		handler: async (args, ctx) => handleDiscussCommand(args, ctx),
+	});
+
+	// ── Input Event (extension-source fallback) ──
+	// When sendUserMessage is used (source="extension"), commands are skipped.
+	// This input handler acts as the fallback entry point.
+	// For TUI interactive mode, the registered command handler fires instead.
+
+	pi.on("input", async (event, ctx) => {
+		if (!event.text.startsWith("/discuss")) return;
+		if (event.source !== "extension") return;
+
+		const trimmed = event.text.slice("/discuss".length).trim();
+		handleDiscussCommand(trimmed, ctx);
+		return { action: "handled" };
+	});
+
+	// ── Lifecycle Events ──
+
+	pi.on("session_start", async (_event, ctx) => {
+		// Restore persisted state
+		const entries = ctx.sessionManager.getEntries();
+		const discussEntry = entries
+			.filter((e: { type: string; customType?: string }) => e.type === "custom" && e.customType === STATE_ENTRY_TYPE)
+			.pop() as { data?: DiscussionState } | undefined;
+
+		if (discussEntry?.data?.enabled) {
+			state.enabled = true;
+			previousTools = pi.getActiveTools();
+			pi.setActiveTools(DISCUSSION_TOOLS);
+			ctx.ui.notify("Discussion mode restored from previous session.", "info");
+		}
+
+		updateStatus(ctx);
+	});
+
+	pi.on("session_shutdown", async (_event, ctx) => {
+		// Clear status UI
+		ctx.ui.setStatus(STATUS_KEY, undefined);
+	});
+
+	pi.on("before_agent_start", async () => {
+		if (!state.enabled) return;
+
+		return {
+			systemPrompt: DISCUSSION_SYSTEM_PROMPT,
+		};
+	});
+
+	pi.on("tool_call", async (event) => {
+		if (!state.enabled) return;
+
+		// Block edit and write tools outright
+		if (event.toolName === "edit" || event.toolName === "write") {
+			return {
+				block: true,
+				reason: `Discussion mode: ${event.toolName} is blocked. Use /discuss off to exit discussion mode first.`,
+			};
+		}
+
+		// Block unsafe bash commands
+		if (event.toolName === "bash") {
+			const command = event.input.command as string;
+			if (!isSafeCommand(command)) {
+				return {
+					block: true,
+					reason: `Discussion mode: this command is blocked (not on the safe list). Use /discuss off to exit discussion mode first.\nCommand: ${command}`,
+				};
+			}
+		}
+	});
+}

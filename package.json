@@ -1,0 +1,15 @@
+{
+  "name": "pi-discuss",
+  "version": "0.1.0",
+  "description": "Discussion mode extension for Pi — read-only research with interactive user questions",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "typescript": "^5.8.0"
+  }
+}
