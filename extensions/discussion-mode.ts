@@ -23,7 +23,7 @@ const STATUS_KEY = "discussion-mode";
 const STATE_ENTRY_TYPE = "discussion-mode-state";
 const ASK_TOOL_NAME = "ask_user_question";
 
-const DISCUSSION_TOOLS = ["read", "bash", "grep", "find", "ls", ASK_TOOL_NAME];
+const DISCUSSION_TOOLS = ["read", "bash", "grep", "find", "ls", "edit", "write", ASK_TOOL_NAME];
 const NORMAL_TOOLS = ["read", "bash", "edit", "write"];
 
 // ── Safe Bash Filtering ──
@@ -143,19 +143,27 @@ interface Question {
 
 // ── System Prompt ──
 
-const DISCUSSION_SYSTEM_PROMPT = `You are in discussion mode — a read-only research mode for deep codebase exploration.
+const DISCUSSION_SYSTEM_PROMPT = `You are in discussion mode — a research mode for deep codebase exploration and collaborative discussion.
 
 Core rules:
-- Do NOT edit files, run write tools, or make any changes to the project.
 - Your goal: understand the problem deeply through research and discussion.
 - Explore the codebase thoroughly before asking questions.
 - When you encounter ambiguity, ask the user clarifying questions using the ask_user_question tool.
 - Summarize your findings and propose next steps. Do NOT start implementing.
 
-Available tools: read, bash (safe commands only), grep, find, ls, ask_user_question
-Blocked tools: edit, write
+Writing documents:
+- You may write documentation, design documents (ADR), PRDs, and implementation plans.
+- Do NOT write or modify implementation code.
+- If unsure whether a change counts as implementation, ask the user first.
 
-When you are ready to exit discussion mode and start implementing, tell the user to run /discuss off.`;
+When a tool is blocked:
+- If bash blocks your command, do NOT try to bypass the restriction.
+- Instead, explain to the user what you were trying to do and why.
+- The user wants to discuss the problem with you, not have you run commands silently.
+
+Available tools: read, bash (safe commands only), grep, find, ls, edit, write, ask_user_question
+
+To exit discussion mode, tell the user to run /discuss off.`;
 
 // ── Extension ──
 
@@ -368,21 +376,13 @@ export default function discussionMode(pi: ExtensionAPI): void {
 	pi.on("tool_call", async (event) => {
 		if (!state.enabled) return;
 
-		// Block edit and write tools outright
-		if (event.toolName === "edit" || event.toolName === "write") {
-			return {
-				block: true,
-				reason: `Discussion mode: ${event.toolName} is blocked. Use /discuss off to exit discussion mode first.`,
-			};
-		}
-
 		// Block unsafe bash commands
 		if (event.toolName === "bash") {
 			const command = event.input.command as string;
 			if (!isSafeCommand(command)) {
 				return {
 					block: true,
-					reason: `Discussion mode: this command is blocked (not on the safe list). Use /discuss off to exit discussion mode first.\nCommand: ${command}`,
+					reason: `Discussion mode: this command is blocked because it may modify files or system state. The user wants to discuss, not run destructive commands.\nExplain what you were trying to do and ask how to proceed.\n\nCommand: ${command}`,
 				};
 			}
 		}
