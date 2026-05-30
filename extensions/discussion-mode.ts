@@ -43,8 +43,6 @@ const DESTRUCTIVE_PATTERNS = [
 	/\btruncate\b/i,
 	/\bdd\b/i,
 	/\bshred\b/i,
-	/(^|[^<])>(?!>)/,
-	/>>/,
 	/\bnpm\s+(install|uninstall|update|ci|link|publish)/i,
 	/\byarn\s+(add|remove|install|publish)/i,
 	/\bpnpm\s+(add|remove|install|publish)/i,
