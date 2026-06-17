@@ -123,7 +123,7 @@ export function isSafeCommand(command: string): boolean {
 // ═══════════════════════════════════════════════
 
 /** File extensions that can be edited/written in architecture mode. */
-export const WRITEABLE_EXTENSIONS = [".md", ".mdx", ".txt", ".html"];
+export const WRITEABLE_EXTENSIONS = [".md", ".mdx", ".txt", ".html", ".yaml", ".yml", ".json"];
 
 /** Returns true if the path is allowed for edit/write in architecture mode. */
 export function isWriteablePath(path: string): boolean {

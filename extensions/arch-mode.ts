@@ -60,6 +60,7 @@ What you can write:
 - Markdown files (.md, .mdx): ADRs, PRDs, design notes, research summaries.
 - Text files (.txt): logs, data extracts, notes.
 - HTML files (.html): demos, mockups, visual explanations.
+- Config files (.yaml, .yml, .json): agent configs, skill definitions, tool settings.
 - Do NOT write or modify implementation code (.ts, .js, .rs, .py, .go, etc.).
 
 When blocked:
