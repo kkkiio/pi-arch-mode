@@ -46,11 +46,15 @@ interface RpcClient {
 }
 
 function spawnPi(cwd: string, extensionPath: string, extraArgs: string[] = []): RpcClient {
-	const proc = spawn("pi", ["--mode", "rpc", "--no-session", "--offline", "--no-extensions", "-e", extensionPath, ...extraArgs], {
-		cwd,
-		stdio: ["pipe", "pipe", "pipe"],
-		env: { ...process.env },
-	});
+	const proc = spawn(
+		"pi",
+		["--mode", "rpc", "--no-session", "--offline", "--no-extensions", "-e", extensionPath, ...extraArgs],
+		{
+			cwd,
+			stdio: ["pipe", "pipe", "pipe"],
+			env: { ...process.env },
+		},
+	);
 
 	const client: RpcClient = {
 		proc,

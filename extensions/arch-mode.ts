@@ -16,7 +16,7 @@
  * - pi.events for extension-to-extension RPC
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { WRITEABLE_EXTENSIONS, isSafeCommand, isWriteablePath } from "./guardrail";
 
@@ -100,13 +100,8 @@ export default function archMode(pi: ExtensionAPI): void {
 		pi.events.emit("arch:state-changed", { enabled: state.enabled });
 	}
 
-	function appendStandDown(original: unknown, message: string): unknown {
-		if (Array.isArray(original)) {
-			return [{ type: "text", text: message }, ...original];
-		}
-		const firstBlock =
-			typeof original === "string" ? { type: "text", text: original } : { type: "text", text: String(original) };
-		return [{ type: "text", text: message }, firstBlock];
+	function appendStandDown(original: ToolResultEvent["content"], message: string): ToolResultEvent["content"] {
+		return [{ type: "text", text: message }, ...original];
 	}
 
 	function enterMode(ctx: ExtensionContext): void {
@@ -265,7 +260,7 @@ export default function archMode(pi: ExtensionAPI): void {
 		savedCtx = ctx;
 
 		// Announce presence to other extensions (e.g. mirror-server for Web UI)
-		pi.events.emit("arch:ready");
+		pi.events.emit("arch:ready", undefined);
 
 		// Restore persisted state
 		const entries = ctx.sessionManager.getEntries();
@@ -330,7 +325,7 @@ export default function archMode(pi: ExtensionAPI): void {
 	});
 
 	// Improve error messages for disabled tools
-	pi.on("tool_result", async (event) => {
+	pi.on("tool_result", async (event, _ctx) => {
 		if (!state.enabled) return;
 
 		// Handle errors first.
