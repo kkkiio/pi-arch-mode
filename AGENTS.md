@@ -110,13 +110,15 @@ The system prompt deliberately avoids framing document output as a mandatory ste
    just test
    ```
 
-4. **Test the extension manually**:
+4. **Merge to main**: feature branches merge to `main` via **rebase** (locally) or **squash** (GitHub PR). No merge commits (`--no-ff`). Keep history linear.
+
+5. **Test the extension manually**:
 
    ```bash
    pi -e ./extensions/arch-mode.ts
    ```
 
-5. **Test architecture mode enter/exit**:
+6. **Test architecture mode enter/exit**:
 
    ```
    /arch
