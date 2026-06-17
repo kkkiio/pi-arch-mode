@@ -15,7 +15,8 @@
   "pi": {
     "extensions": [
       "./extensions/arch-mode.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/kkkiio/pi-arch-mode/main/logo.png"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
@@ -30,6 +31,7 @@
   },
   "files": [
     "extensions/",
-    "README.md"
+    "README.md",
+    "logo.png"
   ]
 }

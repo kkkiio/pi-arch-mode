@@ -1,5 +1,9 @@
 # pi-arch-mode
 
+<p align="center">
+  <img src="./logo.png" alt="pi-arch-mode logo" width="300" />
+</p>
+
 A Pi extension that puts the coding agent into **architecture mode** — a mode for deep exploration, collaborative thinking, and decision-making. The agent reads your codebase, asks clarifying questions, and when clarity is reached, records key decisions that can drive future development.
 
 ## Installation
