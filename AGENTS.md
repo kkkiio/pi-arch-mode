@@ -79,7 +79,11 @@ The extension follows the plan-mode pattern from Pi's examples:
 
 ### System Prompt Design
 
-The system prompt deliberately avoids framing document output as a mandatory step. The agent's primary goal is **understanding and alignment**. Writing documents (ADRs, PRDs, design notes) is an available tool, used when clarity is reached — not a required checkpoint.
+Architecture mode has two co-equal purposes: **help the user understand the codebase** (using architectural patterns and UML-level concepts as shared vocabulary) and **help the user design its architecture**.
+
+Writing ADRs to record key decisions is encouraged; plan/handoff documents are only written when the user explicitly asks. The agent uses common architectural patterns and UML-level concepts as shared vocabulary to explain the codebase.
+
+Document output is not a mandatory step — it's an available tool, used when clarity is reached or the user requests it.
 
 ## Operation Guide
 
