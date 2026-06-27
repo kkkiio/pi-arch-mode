@@ -1,6 +1,6 @@
 # ADR-001: Allow edit/write tools in architecture mode
 
-**Status:** Accepted  
+**Status:** Amended by [ADR-006](./006-unified-hook-interception.md)
 **Date:** 2026-05-30  
 **Deciders:** [@kkkiio](https://github.com/kkkiio)
 
@@ -74,23 +74,16 @@ Bash remains restricted to safe read-only commands, as bash commands are unbound
 - An LLM that both ignores the system prompt AND targets a document file extension could produce harmful output. Mitigation: bash safety filtering prevents destructive shell execution; the user reviews written files.
 - Users who want a guaranteed no-modification mode need a separate "strict architecture" variant (out of scope).
 
-### Disabled-tool error rewriting
+### Tool restriction via hook interception
 
-When architecture mode activates, `pi.setActiveTools(ARCH_TOOLS)` narrows the
-available tool set. Tools that were available before entering the mode (saved in
-`previousTools`) but are not in `ARCH_TOOLS` are silently removed from the
-agent's tool list.
+Architecture mode does not remove any tools from the agent's active tool set
+(other extensions' tools remain available). Instead, the `tool_call` hook
+intercepts disallowed operations and returns `{ block: true, reason: "..." }`
+with specific feedback. This unifies all interception in one place and preserves
+co-installed extensions' functionality.
 
-If the agent still attempts to call one of these tools, pi returns a generic
-error. The `tool_result` handler intercepts this error and replaces it with a
-friendlier, action-guiding message:
-
-> Architecture mode: the "{toolName}" tool is not available. You are in
-> architecture mode — focus on exploration and alignment with the user.
-> Write your analysis as a Markdown document, or ask the user for direction.
-
-This prevents the agent from seeing a confusing low-level error and instead
-redirects it to compliant behavior.
+The only tool dynamically added when entering architecture mode is
+`ask_user_question`. See [ADR-006](./006-unified-hook-interception.md).
 
 ## What is NOT changed
 
@@ -98,9 +91,9 @@ Bash safety filtering ([ADR-002](./002-safe-bash-filtering.md)) is retained unch
 
 1. Bash commands are unbounded — one `git reset --hard` can discard uncommitted work.
 2. When an LLM hits a tool block, it tends to try alternative approaches aggressively. If bash were unrestricted, a confused LLM could cycle through destructive commands seeking a workaround.
-3. Safe bash provides the read-only exploration capability that is core to architecture mode (`cat`, `ls`, `grep`, `find`, `git log`, `git diff`).
+3. Safe bash provides the read-only exploration capability that is core to architecture mode (`cat`, `ls`, `grep`, `find`, `git log`, `git diff`). Note: `grep`, `find`, and `ls` are accessed through `bash`, not as independent tools — see [ADR-006](./006-unified-hook-interception.md).
 
 ## Related
 
-- `extensions/arch-mode.ts` — `ARCH_TOOLS` constant and `ARCH_SYSTEM_PROMPT`
+- `extensions/arch-mode.ts` — `ARCH_SYSTEM_PROMPT` and `tool_call` hook
 - `tests/archion-flow.test.ts` — E2E tests verifying architecture mode behavior

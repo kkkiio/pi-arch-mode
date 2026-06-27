@@ -76,6 +76,19 @@ Agent: Given your constraints, row-level security with shared tables is the
 You: /arch-off
 ```
 
+## Tips for long conversations
+
+Switching between architecture mode and normal mode changes the system prompt, which invalidates the LLM provider's prefix cache. In long conversations (100K+ tokens), this means the next LLM call will recompute the entire context, which can be slower and more expensive.
+
+A warning notification appears automatically when your context exceeds 100K tokens. You can:
+
+| Command | What it does |
+|---------|-------------|
+| `/new` | Start a fresh session in the current mode — zero cache cost, clean slate |
+| `/compact` | Compress the conversation before switching — keeps a summary, reduces recomputation cost |
+
+**Recommendation:** after a long architecture discussion, use `/new` to start a fresh implementation session rather than `/arch-off` and continuing in the same session. Same in reverse — start a fresh architecture session for deep discussions.
+
 ## Features
 
 - **Exploration-first**: Agent reads and understands before suggesting, not the other way around

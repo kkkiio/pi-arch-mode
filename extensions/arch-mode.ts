@@ -26,8 +26,7 @@ const STATUS_KEY = "arch-mode";
 const STATE_ENTRY_TYPE = "arch-mode-state";
 const ASK_TOOL_NAME = "ask_user_question";
 
-const ARCH_TOOLS = ["read", "bash", "grep", "find", "ls", "edit", "write", ASK_TOOL_NAME];
-const NORMAL_TOOLS = ["read", "bash", "edit", "write"];
+const CACHE_WARN_THRESHOLD = 100_000;
 
 // ── Types ──
 
@@ -87,7 +86,7 @@ When blocked:
 - If a tool or command is blocked, pause and explain to the user.
 - Ask how they'd like to proceed. Do NOT try workarounds.
 
-Available tools: read, bash (safe commands only), grep, find, ls, edit, write, ask_user_question
+Available tools: read, bash (safe commands only), edit, write, ask_user_question
 
 To exit architecture mode, tell the user to run /arch-off.`;
 
@@ -96,11 +95,77 @@ To exit architecture mode, tell the user to run /arch-off.`;
 export default function archMode(pi: ExtensionAPI): void {
 	// ── Module-level state ──
 	const state: ArchState = { enabled: false };
-	let previousTools: string[] | undefined;
 	let standDownThisTurn = false;
 
 	// Context bridged from session_start for use in pi.events callbacks
 	let savedCtx: ExtensionContext | undefined;
+
+	// ── Lazy tool registration ──
+
+	let toolRegistered = false;
+
+	function ensureToolRegistered(): void {
+		if (toolRegistered) return;
+		pi.registerTool({
+			name: ASK_TOOL_NAME,
+			label: "Ask User Question",
+			description:
+				"Ask the user 1-3 structured clarifying questions with 2-4 options each. Use this when you encounter ambiguity or need to understand user preferences during architecture mode.",
+			parameters: Type.Object({
+				questions: Type.Array(
+					Type.Object({
+						id: Type.String({ description: "Unique snake_case identifier for this question" }),
+						header: Type.String({ description: "Short label for the question, ≤12 characters" }),
+						question: Type.String({ description: "One-sentence prompt for the user" }),
+						options: Type.Array(
+							Type.Object({
+								label: Type.String({ description: "Short option label shown to the user" }),
+								description: Type.String({ description: "Longer description of what this option means" }),
+							}),
+							{ minItems: 2, maxItems: 4, description: "2-4 selectable options" },
+						),
+					}),
+					{ minItems: 1, maxItems: 3, description: "1-3 questions to ask the user" },
+				),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+				const answers: Record<string, string> = {};
+
+				for (const q of params.questions) {
+					const choices = [
+						...q.options.map((opt: QuestionOption) => `${opt.label}: ${opt.description}`),
+						"Other (free-form response)",
+					];
+
+					const choice = await ctx.ui.select(`${q.header}: ${q.question}`, choices);
+
+					if (!choice) {
+						answers[q.id] = "(no answer)";
+						continue;
+					}
+
+					if (choice.startsWith("Other")) {
+						const freeForm = await ctx.ui.editor(`Your answer for: ${q.question}`, "");
+						answers[q.id] = freeForm?.trim() || "(no answer)";
+					} else {
+						// Extract label from "label: description" format
+						const label = choice.split(":")[0].trim();
+						answers[q.id] = label;
+					}
+				}
+
+				const summary = Object.entries(answers)
+					.map(([id, answer]) => `- **${id}**: ${answer}`)
+					.join("\n");
+
+				return {
+					content: [{ type: "text", text: `User answered:\n\n${summary}` }],
+					details: { answers },
+				};
+			},
+		});
+		toolRegistered = true;
+	}
 
 	// ── Helpers ──
 
@@ -124,24 +189,43 @@ export default function archMode(pi: ExtensionAPI): void {
 		return [{ type: "text", text: message }, ...original];
 	}
 
+	function warnLargeContext(ctx: ExtensionContext): void {
+		try {
+			const usage = ctx.getContextUsage();
+			if (!usage?.tokens) return;
+			if (usage.tokens < CACHE_WARN_THRESHOLD) return;
+
+			const k = Math.round(usage.tokens / 1000);
+			ctx.ui.notify(
+				`⚠️ Context: ~${k}K tokens. Mode switch invalidates prefix cache; next LLM call may be slower. Consider /new (fresh session) or /compact before switching.`,
+				"warning",
+			);
+		} catch {
+			// getContextUsage may not be available (e.g., RPC mode without session)
+		}
+	}
+
 	function enterMode(ctx: ExtensionContext): void {
 		if (state.enabled) {
 			ctx.ui.notify("Already in architecture mode.", "info");
 			return;
 		}
 
-		// Save current tools before switching
-		previousTools = pi.getActiveTools();
 		state.enabled = true;
 
-		// Activate architecture tools (includes ask_user_question)
-		pi.setActiveTools(ARCH_TOOLS);
+		// Register ask_user_question on first use (registerTool auto-activates it)
+		ensureToolRegistered();
+		const tools = pi.getActiveTools();
+		if (!tools.includes(ASK_TOOL_NAME)) {
+			pi.setActiveTools([...tools, ASK_TOOL_NAME]);
+		}
 
 		persistState();
 		updateStatus(ctx);
 		broadcastState();
 
-		ctx.ui.notify(`Architecture mode enabled. Tools: ${ARCH_TOOLS.join(", ")}`, "info");
+		ctx.ui.notify("Architecture mode enabled.", "info");
+		warnLargeContext(ctx);
 	}
 
 	function exitMode(ctx: ExtensionContext): void {
@@ -152,81 +236,16 @@ export default function archMode(pi: ExtensionAPI): void {
 
 		state.enabled = false;
 
-		// Restore previous tools
-		if (previousTools && previousTools.length > 0) {
-			pi.setActiveTools(previousTools);
-		} else {
-			pi.setActiveTools(NORMAL_TOOLS);
-		}
-		previousTools = undefined;
+		// Remove ask_user_question, preserve all other tools
+		pi.setActiveTools(pi.getActiveTools().filter((t) => t !== ASK_TOOL_NAME));
 
 		persistState();
 		updateStatus(ctx);
 		broadcastState();
 
 		ctx.ui.notify("Architecture mode disabled. Full tool access restored.", "info");
+		warnLargeContext(ctx);
 	}
-
-	// ── Tool Registration ──
-
-	pi.registerTool({
-		name: ASK_TOOL_NAME,
-		label: "Ask User Question",
-		description:
-			"Ask the user 1-3 structured clarifying questions with 2-4 options each. Use this when you encounter ambiguity or need to understand user preferences during architecture mode.",
-		parameters: Type.Object({
-			questions: Type.Array(
-				Type.Object({
-					id: Type.String({ description: "Unique snake_case identifier for this question" }),
-					header: Type.String({ description: "Short label for the question, ≤12 characters" }),
-					question: Type.String({ description: "One-sentence prompt for the user" }),
-					options: Type.Array(
-						Type.Object({
-							label: Type.String({ description: "Short option label shown to the user" }),
-							description: Type.String({ description: "Longer description of what this option means" }),
-						}),
-						{ minItems: 2, maxItems: 4, description: "2-4 selectable options" },
-					),
-				}),
-				{ minItems: 1, maxItems: 3, description: "1-3 questions to ask the user" },
-			),
-		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const answers: Record<string, string> = {};
-
-			for (const q of params.questions) {
-				const choices = [
-					...q.options.map((opt: QuestionOption) => `${opt.label}: ${opt.description}`),
-					"Other (free-form response)",
-				];
-
-				const choice = await ctx.ui.select(`${q.header}: ${q.question}`, choices);
-
-				if (!choice) {
-					answers[q.id] = "(no answer)";
-					continue;
-				}
-
-				if (choice.startsWith("Other")) {
-					const freeForm = await ctx.ui.editor(`Your answer for: ${q.question}`, "");
-					answers[q.id] = freeForm?.trim() || "(no answer)";
-				} else {
-					// Extract label from "label: description" format
-					const label = choice.split(":")[0].trim();
-					answers[q.id] = label;
-				}
-			}
-
-			const summary = Object.entries(answers)
-				.map(([id, answer]) => `- **${id}**: ${answer}`)
-				.join("\n");
-
-			return {
-				content: [{ type: "text", text: `User answered:\n\n${summary}` }],
-				details: { answers },
-			};
-		},
-	});
 
 	// ── Command Registration ──
 
@@ -290,8 +309,12 @@ export default function archMode(pi: ExtensionAPI): void {
 
 		if (archEntry?.data?.enabled) {
 			state.enabled = true;
-			previousTools = pi.getActiveTools();
-			pi.setActiveTools(ARCH_TOOLS);
+			// Re-register after fork/restart; registerTool auto-activates it
+			ensureToolRegistered();
+			const tools = pi.getActiveTools();
+			if (!tools.includes(ASK_TOOL_NAME)) {
+				pi.setActiveTools([...tools, ASK_TOOL_NAME]);
+			}
 			ctx.ui.notify("Architecture mode restored from previous session.", "info");
 		}
 
@@ -317,6 +340,14 @@ export default function archMode(pi: ExtensionAPI): void {
 	});
 
 	pi.on("tool_call", async (event) => {
+		// Block ask_user_question outside architecture mode
+		if (event.toolName === ASK_TOOL_NAME && !state.enabled) {
+			return {
+				block: true,
+				reason: `The "${ASK_TOOL_NAME}" tool is only available in architecture mode. Use /arch to enter architecture mode if you need to ask structured clarifying questions.`,
+			};
+		}
+
 		if (!state.enabled) return;
 
 		// Block edits to non-documentation files
@@ -344,33 +375,11 @@ export default function archMode(pi: ExtensionAPI): void {
 		}
 	});
 
-	// Improve error messages for disabled tools
+	// Append stand-down message when agent was blocked earlier this turn
 	pi.on("tool_result", async (event, _ctx) => {
 		if (!state.enabled) return;
+		if (event.isError) return;
 
-		// Handle errors first.
-		// Blocked edit/write and blocked bash already have good rejection
-		// messages from tool_call — those pass through unchanged.
-		// But tools that were disabled by setActiveTools return a generic
-		// error from pi; we replace it with a friendlier message.
-		if (event.isError) {
-			const disabledTools = (previousTools ?? []).filter((t) => !ARCH_TOOLS.includes(t));
-			if (disabledTools.includes(event.toolName)) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Architecture mode: the "${event.toolName}" tool is not available. You are in architecture mode — focus on exploration and alignment with the user. Write your analysis as a Markdown document, or ask the user for direction.`,
-						},
-					],
-					isError: true,
-				};
-			}
-			return;
-		}
-
-		// Successful tool calls: if the agent triggered a stand-down earlier
-		// this turn, prepend the stand-down message to every result.
 		if (standDownThisTurn) {
 			const message =
 				"🛑 Architecture mode: you were blocked from editing implementation files " +

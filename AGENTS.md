@@ -18,13 +18,13 @@ When modifying `extensions/arch-mode.ts`:
 
 - `DESTRUCTIVE_PATTERNS` and `SAFE_PATTERNS` arrays must remain comprehensive. Every new destructive command pattern added to `DESTRUCTIVE_PATTERNS` requires a corresponding safe alternative in `SAFE_PATTERNS` if one exists.
 - The `isSafeCommand` function must always return `false` for commands not explicitly in `SAFE_PATTERNS`.
-- `edit` and `write` in `ARCH_TOOLS` are guarded by `isWriteablePath` in the `tool_call` hook. Any new tool added to `ARCH_TOOLS` that can modify files requires a corresponding guard.
+- `edit` and `write` are guarded by `isWriteablePath` in the `tool_call` hook. Any new tool that can modify files requires a corresponding guard.
 
 ### State Persistence Rules
 
 - State is persisted via `pi.appendEntry(STATE_ENTRY_TYPE, ...)` on every state change.
 - State is restored in `session_start` from `ctx.sessionManager.getEntries()`.
-- The `previousTools` array is NOT persisted — it's in-memory only and rebuilt on restore from `pi.getActiveTools()`.
+- On restore, `ask_user_question` is added to the current active tool set via `pi.setActiveTools([...pi.getActiveTools(), ASK_TOOL_NAME])`. No tools are removed. See ADR-006.
 
 ### API Consistency
 
@@ -67,12 +67,12 @@ The extension follows the plan-mode pattern from Pi's examples:
    - `session_shutdown`: Clear status UI
    - `before_agent_start`: Inject architecture system prompt
    - `tool_call`: Guard edit/write to documentation-only files; restrict bash to safe commands
-   - `tool_result`: Improve error messages for disabled tools
+   - `tool_result`: Append stand-down message when agent was blocked earlier in the turn (ADR-004)
 
 ### Key Design Decisions
 
-- **`ask_user_question` is only active during architecture mode**: It's added to `ARCH_TOOLS` and removed when mode exits. This prevents the LLM from blocking during normal task execution.
-- **Tool restriction uses `pi.setActiveTools`/`pi.getActiveTools`**: Same approach as pi-plan-mode. Save current tools on enter, restore on exit.
+- **`ask_user_question` is only active during architecture mode**: Added via `pi.setActiveTools([...pi.getActiveTools(), ASK_TOOL_NAME])` on enter, removed via `.filter(t => t !== ASK_TOOL_NAME)` on exit. Guarded by `tool_call` hook outside arch mode (returns block with reason).
+- **Tool restriction uses unified `tool_call` hook interception** (ADR-006): `setActiveTools` only adds `ask_user_question`; all behavioral restrictions (unsafe bash, non-document edits) are enforced by the hook. Other extensions' tools are preserved.
 - **State persisted via `pi.appendEntry`**: Survives `/fork` (entries are copied to the new session).
 - **Bash filtering uses allowlist + blocklist**: Commands must NOT match destructive patterns AND must match a safe pattern.
 - **`/arch` enters, does NOT toggle**: Toggle is anti-pattern for slash commands. Use `/arch` to enter, `/arch-off` to exit.

@@ -93,10 +93,10 @@ Key design choices in the message:
 
 - **Per-turn only.** `standDownThisTurn` resets to `false` on every `turn_start`.
   A new turn is a clean slate — the agent gets a fresh chance to stay aligned.
-- **All successful tool results.** `read`, `bash`, `grep`, `find`, `ls` — every
-  successful call gets the stand-down message prepended. Error results from blocked
+- **All successful tool results.** Every successful tool call gets the stand-down
+  message prepended, regardless of which tool was used. Error results from blocked
   `edit`/`write`/`bash` already carry a rejection reason from `tool_call` and pass
-  through unchanged; disabled-tool errors are replaced with a friendly message.
+  through unchanged.
 
 ## Options Considered
 
