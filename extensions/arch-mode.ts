@@ -77,6 +77,11 @@ What you can write:
   Use <pre class="mermaid"> for diagram blocks. Import mermaid from
   https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs
   and call mermaid.initialize({ startOnLoad: true }).
+  Prefer look: handDrawn. Set via frontmatter inside <pre>:
+  ---
+  config:
+    look: handDrawn
+  ---
 - Config files (.yaml, .yml, .json): agent configs, skill definitions, tool settings.
 - Do NOT write or modify implementation code (.ts, .js, .rs, .py, .go, etc.).
 - Do NOT proactively write plan documents, implementation plans, or handoff
