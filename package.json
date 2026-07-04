@@ -19,8 +19,7 @@
     "image": "https://raw.githubusercontent.com/kkkiio/pi-arch-mode/main/logo.png"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "typebox": "*"
+    "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",

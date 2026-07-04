@@ -4,7 +4,7 @@
   <img src="./logo.png" alt="pi-arch-mode logo" width="300" />
 </p>
 
-A Pi extension that puts the coding agent into **architecture mode** — a mode for deep exploration, collaborative thinking, and decision-making. The agent reads your codebase, asks clarifying questions, and when clarity is reached, records key decisions that can drive future development.
+A Pi extension that puts the coding agent into **architecture mode** — a mode for deep exploration, collaborative thinking, and decision-making. The agent reads your codebase, explains it using architectural patterns and UML concepts, and helps you surface trade-offs and make deliberate design decisions.
 
 ## Installation
 
@@ -48,9 +48,9 @@ Exit architecture mode:
 In architecture mode, the agent:
 
 - Explores your codebase to understand the current state
-- Asks structured clarifying questions via the `ask_user_question` tool
+- Explains architecture using common patterns and UML-level concepts
 - Surfaces hidden assumptions and trade-offs
-- Can write design documents (`.md`, `.mdx`, `.txt`, `.html`) when decisions are reached
+- Can write documentation files (`.md`, `.mdx`, `.txt`, `.html`, `.yaml`, `.yml`, `.json`) and HTML diagrams with Mermaid.js
 - Cannot modify implementation code (`.ts`, `.js`, `.rs`, `.py`, `.go`, etc.)
 
 The status bar shows `🏗️ arch mode` while active.
@@ -61,14 +61,9 @@ The status bar shows `🏗️ arch mode` while active.
 You: /arch I need to figure out how to handle multi-tenant data isolation
 
 Agent: [reads db/schema.ts, middleware/tenant.ts, config/]
-       I've reviewed the current database schema and tenant middleware.
-       Before I think through the options, let me ask a few things. [uses ask_user_question]
-
-You:    [answers: Postgres RLS, shared tables, strict isolation]
-
-Agent: Given your constraints, row-level security with shared tables is the
-       right call. The trade-off is that all queries must include tenant
-       context — I'll note this as a core constraint in an ADR.
+       I've reviewed the current schema and tenant middleware. The system
+       uses a shared-database approach with a tenant_id column. The main
+       trade-off is row-level security vs. application-level filtering.
        [writes adrs/005-multi-tenant-isolation.md]
 
        Key decisions recorded. Run /arch-off when you're ready to move forward.
@@ -76,25 +71,11 @@ Agent: Given your constraints, row-level security with shared tables is the
 You: /arch-off
 ```
 
-## Tips for long conversations
-
-Switching between architecture mode and normal mode changes the system prompt, which invalidates the LLM provider's prefix cache. In long conversations (100K+ tokens), this means the next LLM call will recompute the entire context, which can be slower and more expensive.
-
-A warning notification appears automatically when your context exceeds 100K tokens. You can:
-
-| Command | What it does |
-|---------|-------------|
-| `/new` | Start a fresh session in the current mode — zero cache cost, clean slate |
-| `/compact` | Compress the conversation before switching — keeps a summary, reduces recomputation cost |
-
-**Recommendation:** after a long architecture discussion, use `/new` to start a fresh implementation session rather than `/arch-off` and continuing in the same session. Same in reverse — start a fresh architecture session for deep discussions.
-
 ## Features
 
 - **Exploration-first**: Agent reads and understands before suggesting, not the other way around
-- **Structured Q&A**: Custom `ask_user_question` tool lets the agent ask clarifying questions with selectable options
 - **Decision recording**: Agent can write ADRs, PRDs, and design notes when alignment is reached
-- **Safe by default**: Implementation code is write-protected; bash is restricted to safe commands
+- **Safe by default**: Implementation code is write-protected; bash is restricted to safe commands. Switching modes has no performance impact — the system prompt and tool set are never modified.
 - **State persistence**: Architecture mode state survives session restarts and `/fork`
 
 ## Relationship to automated development loops

@@ -82,8 +82,7 @@ intercepts disallowed operations and returns `{ block: true, reason: "..." }`
 with specific feedback. This unifies all interception in one place and preserves
 co-installed extensions' functionality.
 
-The only tool dynamically added when entering architecture mode is
-`ask_user_question`. See [ADR-006](./006-unified-hook-interception.md).
+No tools are added or removed when entering architecture mode. See [ADR-006](./006-unified-hook-interception.md).
 
 ## What is NOT changed
 
@@ -91,7 +90,7 @@ Bash safety filtering ([ADR-002](./002-safe-bash-filtering.md)) is retained unch
 
 1. Bash commands are unbounded — one `git reset --hard` can discard uncommitted work.
 2. When an LLM hits a tool block, it tends to try alternative approaches aggressively. If bash were unrestricted, a confused LLM could cycle through destructive commands seeking a workaround.
-3. Safe bash provides the read-only exploration capability that is core to architecture mode (`cat`, `ls`, `grep`, `find`, `git log`, `git diff`). Note: `grep`, `find`, and `ls` are accessed through `bash`, not as independent tools — see [ADR-006](./006-unified-hook-interception.md).
+3. Safe bash provides the read-only exploration capability that is core to architecture mode (`cat`, `ls`, `grep`, `find`, `git log`, `git diff`). 
 
 ## Related
 

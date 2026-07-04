@@ -1,32 +1,29 @@
 /**
  * Architecture Mode Extension
  *
- * A mode for deep exploration, collaborative thinking, and decision-making.
- * The agent reads, asks clarifying questions, and when clarity is reached,
- * records key decisions that can drive future automated development loops.
+ * Puts the agent into architecture mode — a guardrail for exploration,
+ * understanding, and decision-making. The agent can read and write
+ * documentation but cannot touch implementation code. Switching modes
+ * has zero performance impact: no system prompt or tool set manipulation.
  *
  * Features:
  * - /arch [topic] command to enter architecture mode
  * - /arch-off command to leave architecture mode
- * - Tools include read + edit/write (documentation only) + ask_user_question
  * - Bash restricted to safe read-only commands
- * - Custom ask_user_question tool for structured Q&A
- * - System prompt biases toward exploration and alignment, not output
+ * - Edit/write allowed only on documentation files
+ * - Stand-down mechanism prevents workarounds after rejection
  * - State persists across sessions and forks
+ * - Zero prefix cache impact
  * - pi.events for extension-to-extension RPC
  */
 
 import type { ExtensionAPI, ExtensionContext, ToolResultEvent } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
 import { WRITEABLE_EXTENSIONS, isSafeCommand, isWriteablePath } from "./guardrail";
 
 // ── Constants ──
 
 const STATUS_KEY = "arch-mode";
 const STATE_ENTRY_TYPE = "arch-mode-state";
-const ASK_TOOL_NAME = "ask_user_question";
-
-const CACHE_WARN_THRESHOLD = 100_000;
 
 // ── Types ──
 
@@ -34,143 +31,44 @@ interface ArchState {
 	enabled: boolean;
 }
 
-interface QuestionOption {
-	label: string;
-	description: string;
-}
+// ── Architecture mode message (injected into transcript, not system prompt) ──
 
-interface Question {
-	id: string;
-	header: string;
-	question: string;
-	options: QuestionOption[];
-}
-
-// ── System Prompt ──
-
-const ARCH_SYSTEM_PROMPT = `You are in architecture mode — a mode for exploration, understanding, and design.
+const ARCH_MODE_MESSAGE = `You have entered architecture mode — a mode for exploration, understanding, and design.
 
 Architecture mode serves two co-equal purposes:
 
-1. Help the user understand the codebase.
-   Since code in the Vibe Coding era is often written by agents, users may not
-   have a clear mental model of the codebase. Your job is to bridge that gap.
-   Use common architectural patterns (MVC, layered, hexagonal, event-driven, etc.)
-   and UML-level concepts (components, dependencies, data flow, boundaries) to
-   explain the codebase in terms the user already knows.
+1. Help the user understand the codebase. Since code is often written by agents,
+   users may lack a clear mental model. Your job is to bridge that gap — use
+   common architectural patterns (MVC, layered, hexagonal, event-driven, etc.)
+   and UML-level concepts (components, dependencies, data flow, boundaries) as
+   a shared vocabulary to explain the codebase in terms the user already knows.
 
-2. Help the user design the codebase's architecture.
-   Collaborate with the user to explore alternatives, surface trade-offs, and
-   make deliberate architectural decisions.
+2. Help the user design its architecture. Collaborate to explore alternatives,
+   surface hidden assumptions, trade-offs, and make deliberate architectural
+   decisions.
 
-Core workflow:
-- Read broadly, ask clarifying questions, surface hidden assumptions.
-- When the discussion reaches clarity, record key decisions so they can drive
-  future work.
+Read broadly first — understand before suggesting.
 
-What you can write:
-- Markdown files (.md, .mdx): ADRs, PRDs, research summaries.
-- Text files (.txt): logs, data extracts, notes.
-- HTML files (.html): demos, mockups, visual explanations. You can embed
-  Mermaid.js to render architecture diagrams (component diagrams, sequence
-  diagrams, etc.) that the user can open in a browser.
-  Use <pre class="mermaid"> for diagram blocks. Import mermaid from
-  https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs
-  and call mermaid.initialize({ startOnLoad: true }).
-  Prefer look: handDrawn. Set via frontmatter inside <pre>:
-  ---
-  config:
-    look: handDrawn
-  ---
-- Config files (.yaml, .yml, .json): agent configs, skill definitions, tool settings.
-- Do NOT write or modify implementation code (.ts, .js, .rs, .py, .go, etc.).
-- Do NOT proactively write plan documents, implementation plans, or handoff
-  documents. Only write these when the user explicitly asks.
+When relevant, you can write documentation files (.md, .mdx, .txt, .html, .yaml,
+.yml, .json). For architecture diagrams, write an HTML file embedding Mermaid.js
+— import from https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs
+and use <pre class="mermaid"> blocks.
 
-When blocked:
-- If a tool or command is blocked, pause and explain to the user.
-- Ask how they'd like to proceed. Do NOT try workarounds.
+Do NOT write or modify implementation code (.ts, .js, .rs, .py, .go, etc.).
+Do NOT proactively write plan documents or handoff documents — only when the
+user explicitly asks.
 
-Available tools: read, bash (safe commands only), edit, write, ask_user_question
+If a tool or command is blocked, pause and explain why. Ask the user how to
+proceed. Do NOT try workarounds.`;
 
-To exit architecture mode, tell the user to run /arch-off.`;
+const ARCH_EXIT_MESSAGE = "Architecture mode deactivated. Full tool access restored.";
 
 // ── Extension ──
 
 export default function archMode(pi: ExtensionAPI): void {
-	// ── Module-level state ──
 	const state: ArchState = { enabled: false };
 	let standDownThisTurn = false;
-
-	// Context bridged from session_start for use in pi.events callbacks
 	let savedCtx: ExtensionContext | undefined;
-
-	// ── Lazy tool registration ──
-
-	let toolRegistered = false;
-
-	function ensureToolRegistered(): void {
-		if (toolRegistered) return;
-		pi.registerTool({
-			name: ASK_TOOL_NAME,
-			label: "Ask User Question",
-			description:
-				"Ask the user 1-3 structured clarifying questions with 2-4 options each. Use this when you encounter ambiguity or need to understand user preferences during architecture mode.",
-			parameters: Type.Object({
-				questions: Type.Array(
-					Type.Object({
-						id: Type.String({ description: "Unique snake_case identifier for this question" }),
-						header: Type.String({ description: "Short label for the question, ≤12 characters" }),
-						question: Type.String({ description: "One-sentence prompt for the user" }),
-						options: Type.Array(
-							Type.Object({
-								label: Type.String({ description: "Short option label shown to the user" }),
-								description: Type.String({ description: "Longer description of what this option means" }),
-							}),
-							{ minItems: 2, maxItems: 4, description: "2-4 selectable options" },
-						),
-					}),
-					{ minItems: 1, maxItems: 3, description: "1-3 questions to ask the user" },
-				),
-			}),
-			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-				const answers: Record<string, string> = {};
-
-				for (const q of params.questions) {
-					const choices = [
-						...q.options.map((opt: QuestionOption) => `${opt.label}: ${opt.description}`),
-						"Other (free-form response)",
-					];
-
-					const choice = await ctx.ui.select(`${q.header}: ${q.question}`, choices);
-
-					if (!choice) {
-						answers[q.id] = "(no answer)";
-						continue;
-					}
-
-					if (choice.startsWith("Other")) {
-						const freeForm = await ctx.ui.editor(`Your answer for: ${q.question}`, "");
-						answers[q.id] = freeForm?.trim() || "(no answer)";
-					} else {
-						// Extract label from "label: description" format
-						const label = choice.split(":")[0].trim();
-						answers[q.id] = label;
-					}
-				}
-
-				const summary = Object.entries(answers)
-					.map(([id, answer]) => `- **${id}**: ${answer}`)
-					.join("\n");
-
-				return {
-					content: [{ type: "text", text: `User answered:\n\n${summary}` }],
-					details: { answers },
-				};
-			},
-		});
-		toolRegistered = true;
-	}
 
 	// ── Helpers ──
 
@@ -194,22 +92,6 @@ export default function archMode(pi: ExtensionAPI): void {
 		return [{ type: "text", text: message }, ...original];
 	}
 
-	function warnLargeContext(ctx: ExtensionContext): void {
-		try {
-			const usage = ctx.getContextUsage();
-			if (!usage?.tokens) return;
-			if (usage.tokens < CACHE_WARN_THRESHOLD) return;
-
-			const k = Math.round(usage.tokens / 1000);
-			ctx.ui.notify(
-				`⚠️ Context: ~${k}K tokens. Mode switch invalidates prefix cache; next LLM call may be slower. Consider /new (fresh session) or /compact before switching.`,
-				"warning",
-			);
-		} catch {
-			// getContextUsage may not be available (e.g., RPC mode without session)
-		}
-	}
-
 	function enterMode(ctx: ExtensionContext): void {
 		if (state.enabled) {
 			ctx.ui.notify("Already in architecture mode.", "info");
@@ -217,20 +99,11 @@ export default function archMode(pi: ExtensionAPI): void {
 		}
 
 		state.enabled = true;
-
-		// Register ask_user_question on first use (registerTool auto-activates it)
-		ensureToolRegistered();
-		const tools = pi.getActiveTools();
-		if (!tools.includes(ASK_TOOL_NAME)) {
-			pi.setActiveTools([...tools, ASK_TOOL_NAME]);
-		}
-
 		persistState();
 		updateStatus(ctx);
 		broadcastState();
 
 		ctx.ui.notify("Architecture mode enabled.", "info");
-		warnLargeContext(ctx);
 	}
 
 	function exitMode(ctx: ExtensionContext): void {
@@ -240,16 +113,22 @@ export default function archMode(pi: ExtensionAPI): void {
 		}
 
 		state.enabled = false;
-
-		// Remove ask_user_question, preserve all other tools
-		pi.setActiveTools(pi.getActiveTools().filter((t) => t !== ASK_TOOL_NAME));
-
 		persistState();
 		updateStatus(ctx);
 		broadcastState();
 
+		// Queue a one-shot message so the agent sees the exit notification
+		// on the next turn without the user needing to mention it.
+		pi.sendMessage(
+			{
+				customType: "arch-mode",
+				content: ARCH_EXIT_MESSAGE,
+				display: false,
+			},
+			{ deliverAs: "nextTurn" },
+		);
+
 		ctx.ui.notify("Architecture mode disabled. Full tool access restored.", "info");
-		warnLargeContext(ctx);
 	}
 
 	// ── Command Registration ──
@@ -259,7 +138,6 @@ export default function archMode(pi: ExtensionAPI): void {
 		handler: async (args, ctx) => {
 			const topic = args.trim();
 
-			// Already in mode: just forward topic text
 			if (state.enabled) {
 				if (topic) {
 					pi.sendUserMessage(topic);
@@ -271,7 +149,6 @@ export default function archMode(pi: ExtensionAPI): void {
 
 			enterMode(ctx);
 
-			// If a topic was provided, send it as a user message
 			if (topic) {
 				pi.sendUserMessage(topic);
 			}
@@ -300,13 +177,9 @@ export default function archMode(pi: ExtensionAPI): void {
 	// ── Lifecycle Events ──
 
 	pi.on("session_start", async (_event, ctx) => {
-		// Bridge context for use in pi.events callbacks
 		savedCtx = ctx;
-
-		// Announce presence to other extensions (e.g. mirror-server for Web UI)
 		pi.events.emit("arch:ready", undefined);
 
-		// Restore persisted state
 		const entries = ctx.sessionManager.getEntries();
 		const archEntry = entries
 			.filter((e: { type: string; customType?: string }) => e.type === "custom" && e.customType === STATE_ENTRY_TYPE)
@@ -314,48 +187,38 @@ export default function archMode(pi: ExtensionAPI): void {
 
 		if (archEntry?.data?.enabled) {
 			state.enabled = true;
-			// Re-register after fork/restart; registerTool auto-activates it
-			ensureToolRegistered();
-			const tools = pi.getActiveTools();
-			if (!tools.includes(ASK_TOOL_NAME)) {
-				pi.setActiveTools([...tools, ASK_TOOL_NAME]);
-			}
 			ctx.ui.notify("Architecture mode restored from previous session.", "info");
 		}
 
 		updateStatus(ctx);
 
-		// Broadcast initial state so other extensions (e.g. Web UI) can sync
 		if (state.enabled) {
 			broadcastState();
 		}
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		// Clear status UI
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 	});
 
+	// Inject arch mode context message into transcript (not system prompt).
+	// The system prompt and tool set remain unchanged — no prefix cache impact.
 	pi.on("before_agent_start", async () => {
 		if (!state.enabled) return;
 
 		return {
-			systemPrompt: ARCH_SYSTEM_PROMPT,
+			message: {
+				customType: "arch-mode",
+				content: ARCH_MODE_MESSAGE,
+				display: false,
+			},
 		};
 	});
 
 	pi.on("tool_call", async (event) => {
-		// Block ask_user_question outside architecture mode
-		if (event.toolName === ASK_TOOL_NAME && !state.enabled) {
-			return {
-				block: true,
-				reason: `The "${ASK_TOOL_NAME}" tool is only available in architecture mode. Use /arch to enter architecture mode if you need to ask structured clarifying questions.`,
-			};
-		}
-
 		if (!state.enabled) return;
 
-		// Block edits to non-documentation files
+		// Guard edit/write to documentation-only files
 		if (event.toolName === "edit" || event.toolName === "write") {
 			const path = event.input?.path as string | undefined;
 			if (path && !isWriteablePath(path)) {
@@ -367,14 +230,14 @@ export default function archMode(pi: ExtensionAPI): void {
 			}
 		}
 
-		// Block unsafe bash commands
+		// Guard bash to safe commands only
 		if (event.toolName === "bash") {
 			const command = event.input.command as string;
 			if (!isSafeCommand(command)) {
 				standDownThisTurn = true;
 				return {
 					block: true,
-					reason: `Architecture mode: this command is blocked because it may modify files or system state. The user wants to explore and align, not run destructive commands.\nExplain what you were trying to do and ask how to proceed.\n\nCommand: ${command}`,
+					reason: `Architecture mode: this command is blocked because it may modify files or system state. Explain what you were trying to do and ask how to proceed.\n\nCommand: ${command}`,
 				};
 			}
 		}

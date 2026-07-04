@@ -24,13 +24,11 @@ When modifying `extensions/arch-mode.ts`:
 
 - State is persisted via `pi.appendEntry(STATE_ENTRY_TYPE, ...)` on every state change.
 - State is restored in `session_start` from `ctx.sessionManager.getEntries()`.
-- On restore, `ask_user_question` is added to the current active tool set via `pi.setActiveTools([...pi.getActiveTools(), ASK_TOOL_NAME])`. No tools are removed. See ADR-006.
+- On restore from persisted state, `state.enabled` is set to `true`. No tools are manipulated. See ADR-006.
 
 ### API Consistency
 
 - All `pi.on()` handlers must match the documented event signatures exactly (event, ctx).
-- The `ask_user_question` tool parameters must validate questions: 1-3 questions, each with 2-4 options.
-- Tool answers format: `{ [id: string]: string }` where id is the snake_case question id.
 
 ## Project Structure Guide
 
@@ -41,7 +39,7 @@ A single-file Pi extension that registers a command, a custom tool, and lifecycl
 ### Repo Structure & Important Files
 
 - `package.json` — Package metadata with `keywords: ["pi-package"]` and `peerDependencies`
-- `extensions/arch-mode.ts` — Full implementation (command, tool, events, bash filtering)
+- `extensions/arch-mode.ts` — Full implementation (command, events, bash filtering, guardrails)
 - `extensions/guardrail.ts` — Bash safety filter and writeable-path guard
 - `tests/arch-flow.test.ts` — E2E tests using pi RPC mode
 - `justfile` — Dev recipes (`just fmt`, `just check`, `just test`)
@@ -61,29 +59,29 @@ The extension follows the plan-mode pattern from Pi's examples:
    - `cmd:arch:enter` — enter architecture mode (no payload)
    - `cmd:arch:exit` — exit architecture mode (no payload)
    - `arch:state-changed` — broadcast on state change
-3. **Tool registration** (`ask_user_question`): Structured Q&A tool, only active in architecture mode
-4. **Lifecycle events**:
+3. **Lifecycle events**:
    - `session_start`: Restore persisted state, bridge `ExtensionContext`, broadcast initial state
    - `session_shutdown`: Clear status UI
-   - `before_agent_start`: Inject architecture system prompt
+   - `before_agent_start`: Inject arch mode context message into transcript (no system prompt replacement — preserves prefix cache)
    - `tool_call`: Guard edit/write to documentation-only files; restrict bash to safe commands
    - `tool_result`: Append stand-down message when agent was blocked earlier in the turn (ADR-004)
 
 ### Key Design Decisions
 
-- **`ask_user_question` is only active during architecture mode**: Added via `pi.setActiveTools([...pi.getActiveTools(), ASK_TOOL_NAME])` on enter, removed via `.filter(t => t !== ASK_TOOL_NAME)` on exit. Guarded by `tool_call` hook outside arch mode (returns block with reason).
-- **Tool restriction uses unified `tool_call` hook interception** (ADR-006): `setActiveTools` only adds `ask_user_question`; all behavioral restrictions (unsafe bash, non-document edits) are enforced by the hook. Other extensions' tools are preserved.
+- **Zero cache impact** (ADR-006): Architecture mode never changes the system prompt or active tool set. `before_agent_start` injects a context message into the transcript (`{ message }` return field), which does not invalidate the prefix cache. `exitMode` sends a one-shot exit notification via `pi.sendMessage({...}, { deliverAs: "nextTurn" })`.
+- **Pure `tool_call` hook guardrail**: All behavioral restrictions (unsafe bash, non-document edits) are enforced by the `tool_call` hook. No tools are added or removed on mode switch. Other extensions' tools are always preserved.
+- **No custom tools**: Architecture mode is about understanding and design, not structured interviewing. The agent uses Pi's native tools.
 - **State persisted via `pi.appendEntry`**: Survives `/fork` (entries are copied to the new session).
 - **Bash filtering uses allowlist + blocklist**: Commands must NOT match destructive patterns AND must match a safe pattern.
 - **`/arch` enters, does NOT toggle**: Toggle is anti-pattern for slash commands. Use `/arch` to enter, `/arch-off` to exit.
 
-### System Prompt Design
+### Architecture Mode Message
 
-Architecture mode has two co-equal purposes: **help the user understand the codebase** (using architectural patterns and UML-level concepts as shared vocabulary) and **help the user design its architecture**.
+The arch mode message is injected into the transcript via `before_agent_start → { message }` (not `{ systemPrompt }`). It has two co-equal purposes: **help the user understand the codebase** (using architectural patterns and UML-level concepts as shared vocabulary) and **help the user design its architecture**.
 
-Writing ADRs to record key decisions is encouraged; plan/handoff documents are only written when the user explicitly asks. The agent uses common architectural patterns and UML-level concepts as shared vocabulary to explain the codebase.
+The message guides the agent to read broadly, surface assumptions, discuss trade-offs, and write documentation files when relevant. It explicitly forbids modifying implementation code and proactively writing plans.
 
-Document output is not a mandatory step — it's an available tool, used when clarity is reached or the user requests it.
+Pi's default system prompt provides the tool inventory — the arch mode message does not duplicate it.
 
 ## Operation Guide
 
@@ -156,4 +154,4 @@ Tests use pi's `--mode rpc` to spawn a headless pi instance with the extension l
 
 - Fast iteration: `pi -e ./extensions/arch-mode.ts` for quick testing without installation
 - After code changes, use `/reload` to pick up changes without restarting pi
-- If `ask_user_question` hangs, check that `ctx.ui.select()` is available (non-print mode)
+
