@@ -165,6 +165,31 @@ function extractAssistantText(events: unknown[]): string {
 	return parts.join("");
 }
 
+interface ToolResultView {
+	toolName: string;
+	isError: boolean;
+	text: string;
+}
+
+function extractToolResults(events: unknown[]): ToolResultView[] {
+	const results: ToolResultView[] = [];
+	for (const ev of events) {
+		const e = ev as any;
+		if (e.type !== "message_end") continue;
+		const msg = e.message;
+		if (msg?.role !== "toolResult" || !Array.isArray(msg.content)) continue;
+		results.push({
+			toolName: msg.toolName,
+			isError: Boolean(msg.isError),
+			text: msg.content
+				.filter((block: any) => block.type === "text" && block.text)
+				.map((block: any) => block.text)
+				.join("\n"),
+		});
+	}
+	return results;
+}
+
 // ── Temp dirs (project-local) ──
 
 const TMP_DIR = join(process.cwd(), "tmp");
@@ -220,6 +245,49 @@ describe("commands", () => {
 			await prompt(c, "/arch");
 			const m = await notifyMatch(c, (s) => s.includes("Already"));
 			assert.ok(m);
+		} finally {
+			await kill(c);
+		}
+	});
+});
+
+// ── Stand-down suite (faux LLM, no API key needed) ──
+
+describe("stand-down", () => {
+	const extPath = join(process.cwd(), "extensions", "arch-mode.ts");
+	const fauxProviderPath = join(process.cwd(), "tests", "faux-standdown-provider.ts");
+
+	it("prepends stand-down to successful follow-up tool results after a block", async () => {
+		const c = spawnPi(process.cwd(), extPath, [
+			"-e",
+			fauxProviderPath,
+			"--provider",
+			"arch-faux",
+			"--model",
+			"standdown",
+		]);
+
+		try {
+			await prompt(c, "/arch");
+			const enterNotify = await notifyMatch(c, (s) => s.includes("enabled"));
+			assert.ok(enterNotify, "should notify mode enabled");
+
+			await prompt(c, "Trigger the stand-down fixture.");
+			await waitForAgentEnd(c);
+
+			const results = extractToolResults(c.events);
+			const blockedWrite = results.find((result) => result.toolName === "write");
+			const followupRead = results.find((result) => result.toolName === "read");
+
+			assert.ok(blockedWrite, "should capture blocked write result");
+			assert.equal(blockedWrite.isError, true);
+			assert.match(blockedWrite.text, /only edit documentation files/);
+			assert.doesNotMatch(blockedWrite.text, /Stand down/);
+
+			assert.ok(followupRead, "should capture follow-up read result");
+			assert.equal(followupRead.isError, false);
+			assert.match(followupRead.text, /Architecture mode: you were blocked/);
+			assert.match(followupRead.text, /Stand down/);
 		} finally {
 			await kill(c);
 		}
