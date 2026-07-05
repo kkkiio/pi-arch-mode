@@ -4,7 +4,13 @@
   <img src="./logo.png" alt="pi-arch-mode logo" width="300" />
 </p>
 
-A Pi extension that puts the coding agent into **architecture mode** — a mode for deep exploration, collaborative thinking, and decision-making. The agent reads your codebase, explains it using architectural patterns and UML concepts, and helps you surface trade-offs and make deliberate design decisions.
+A Pi extension that puts the coding agent into **architecture mode**. It serves two co-equal purposes:
+
+1. **Help you understand your codebase.** In the Vibe Coding era, code is written by agents — you may not have a clear mental model of what exists. Architecture mode bridges that gap, using common architectural patterns (MVC, layered, hexagonal, event-driven, etc.) and UML-level concepts (components, dependencies, data flow, boundaries) as a shared vocabulary to explain your codebase in terms you already know.
+
+2. **Help you design its architecture.** Collaborate with the agent to explore alternatives, surface hidden assumptions and trade-offs, and make deliberate architectural decisions — then record them as ADRs.
+
+These two purposes form a natural loop: Understand → Design → (Agent builds) → Things drift → Understand again.
 
 ## Installation
 

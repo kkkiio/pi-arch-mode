@@ -1,8 +1,6 @@
 # ADR-004: Stand Down — persistent behavioral feedback after edit rejection
 
-**Status:** Accepted  
 **Date:** 2026-06-11  
-**Deciders:** [@kkkiio](https://github.com/kkkiio)
 
 ## Context
 
@@ -193,6 +191,5 @@ pressure to realign.
 ## Related
 
 - `extensions/arch-mode.ts` — Implementation
-- [ADR-001: Allow edit/write in architecture mode](./001-allow-edit-write-in-arch-mode.md)
 - [ADR-002: Safe-command filtering for bash](./002-safe-bash-filtering.md)
-- [ADR-003: Event-driven extension commands](./003-event-driven-extension-commands.md)
+- [ADR-005: Event-driven extension commands](./005-event-driven-extension-commands.md)

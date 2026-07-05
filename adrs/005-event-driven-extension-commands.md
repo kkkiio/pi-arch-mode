@@ -1,8 +1,6 @@
-# ADR-003: Event-driven extension commands (replace input event interception)
+# ADR-005: Event-driven extension commands (replace input event interception)
 
-**Status:** Accepted  
 **Date:** 2026-06-10  
-**Deciders:** [@kkkiio](https://github.com/kkkiio)
 
 ## Context
 
@@ -33,8 +31,10 @@ extension-source message pipeline.
 - **Semantic mismatch.** The input handler is intercepting a user-facing event to
   serve as an ad-hoc extension RPC mechanism.
 - **String parsing fragility.** The caller must construct a valid slash-command
-  string (`"/arch some topic"`) and the receiver must parse it back.
-- **No structured payload.** Topic text is the only data that can pass through.
+  string and the receiver must parse it back.
+- **Semantic overreach.** Extension-to-extension mode switching only needs
+  enter/exit commands. Topic prompts remain a user-facing `/arch [topic]`
+  command behavior, not part of the extension RPC contract.
 - **Not generalizable.** Every extension that wants to expose actions to other
   extensions would need its own input event parser, with potential conflicts.
 
@@ -42,12 +42,12 @@ extension-source message pipeline.
 
 ```typescript
 // Other extension sends a request
-pi.events.emit("cmd:arch:enter", { topic: "重构 auth" });
+pi.events.emit("cmd:arch:enter");
 
 // Arch extension handles it
-pi.events.on("cmd:arch:enter", (data) => {
-  const { topic } = data as { topic?: string };
-  enterMode(savedCtx, topic);
+pi.events.on("cmd:arch:enter", () => {
+  if (!savedCtx) return;
+  enterMode(savedCtx);
 });
 ```
 
@@ -92,19 +92,21 @@ semantics that `pi.events` carries:
 
 ```typescript
 // → cmd:arch:enter
-interface ArchEnterPayload {
-  topic?: string;
-}
+// no payload
 
 // → cmd:arch:exit
-// (no payload needed)
+// no payload
 
 // ← arch:state-changed
 interface ArchStateChanged {
   enabled: boolean;
-  topic?: string;
 }
 ```
+
+The command channels intentionally do not carry topics or other arguments. A
+topic is part of the user-facing `/arch [topic]` slash command flow; external
+extensions can enter architecture mode via `cmd:arch:enter` and send any
+subsequent prompt through their own user-message flow.
 
 ### Context bridging
 
@@ -119,13 +121,13 @@ pi.on("session_start", async (_event, ctx) => {
   // restore persisted state...
   // broadcast initial state
   if (state.enabled) {
-    pi.events.emit("arch:state-changed", { enabled: true, topic: currentTopic });
+    pi.events.emit("arch:state-changed", { enabled: true });
   }
 });
 
-pi.events.on("cmd:arch:enter", (data) => {
+pi.events.on("cmd:arch:enter", () => {
   if (!savedCtx) return;
-  enterMode(savedCtx, data.topic);
+  enterMode(savedCtx);
 });
 ```
 
@@ -191,7 +193,8 @@ this ADR.
 
 - **Clean semantics.** Commands are commands, events are events. The channel
   naming makes intent explicit.
-- **Structured payloads.** No string parsing. Callers pass typed objects.
+- **No command-string parsing.** Callers emit explicit command channels instead
+  of smuggling mode changes through slash-command text.
 - **Generalizable.** The `cmd:{domain}:{verb}` / `{domain}:{verb}` convention
   can be adopted by any extension. Web UIs can discover supported commands
   through a consistent pattern.
@@ -201,9 +204,8 @@ this ADR.
 
 ### Negative
 
-- **`pi.events` has no type safety.** Channels and payloads are untyped
-  (`string`, `unknown`). Callers and handlers must agree on the contract
-  through documentation, not the compiler.
+- **`pi.events` has no type safety.** Channels are untyped strings. Callers and
+  handlers must agree on the contract through documentation, not the compiler.
 - **No built-in error propagation.** If a command handler throws, the caller
   has no way to know. For architecture mode this is acceptable — state changes are
   visible through the broadcast. For extensions that need error feedback, a

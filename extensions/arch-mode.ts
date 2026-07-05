@@ -29,6 +29,7 @@ const STATE_ENTRY_TYPE = "arch-mode-state";
 
 interface ArchState {
 	enabled: boolean;
+	agentThinksInArch: boolean;
 }
 
 // ── Architecture mode message (injected into transcript, not system prompt) ──
@@ -66,7 +67,7 @@ const ARCH_EXIT_MESSAGE = "Architecture mode deactivated. Full tool access resto
 // ── Extension ──
 
 export default function archMode(pi: ExtensionAPI): void {
-	const state: ArchState = { enabled: false };
+	const state: ArchState = { enabled: false, agentThinksInArch: false };
 	let standDownThisTurn = false;
 	let savedCtx: ExtensionContext | undefined;
 
@@ -81,7 +82,10 @@ export default function archMode(pi: ExtensionAPI): void {
 	}
 
 	function persistState(): void {
-		pi.appendEntry(STATE_ENTRY_TYPE, { enabled: state.enabled });
+		pi.appendEntry(STATE_ENTRY_TYPE, {
+			enabled: state.enabled,
+			agentThinksInArch: state.agentThinksInArch,
+		});
 	}
 
 	function broadcastState(): void {
@@ -116,17 +120,6 @@ export default function archMode(pi: ExtensionAPI): void {
 		persistState();
 		updateStatus(ctx);
 		broadcastState();
-
-		// Queue a one-shot message so the agent sees the exit notification
-		// on the next turn without the user needing to mention it.
-		pi.sendMessage(
-			{
-				customType: "arch-mode",
-				content: ARCH_EXIT_MESSAGE,
-				display: false,
-			},
-			{ deliverAs: "nextTurn" },
-		);
 
 		ctx.ui.notify("Architecture mode disabled. Full tool access restored.", "info");
 	}
@@ -183,11 +176,14 @@ export default function archMode(pi: ExtensionAPI): void {
 		const entries = ctx.sessionManager.getEntries();
 		const archEntry = entries
 			.filter((e: { type: string; customType?: string }) => e.type === "custom" && e.customType === STATE_ENTRY_TYPE)
-			.pop() as { data?: ArchState } | undefined;
+			.pop() as { data?: Partial<ArchState> } | undefined;
 
-		if (archEntry?.data?.enabled) {
-			state.enabled = true;
-			ctx.ui.notify("Architecture mode restored from previous session.", "info");
+		if (archEntry?.data) {
+			state.enabled = archEntry.data.enabled ?? false;
+			state.agentThinksInArch = archEntry.data.agentThinksInArch ?? false;
+			if (state.enabled) {
+				ctx.ui.notify("Architecture mode restored from previous session.", "info");
+			}
 		}
 
 		updateStatus(ctx);
@@ -201,18 +197,34 @@ export default function archMode(pi: ExtensionAPI): void {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 	});
 
-	// Inject arch mode context message into transcript (not system prompt).
-	// The system prompt and tool set remain unchanged — no prefix cache impact.
+	// Lazy message delivery: inject mode/exit messages only when the agent's
+	// knowledge is stale relative to the current mode state. enterMode() and
+	// exitMode() do NOT touch state.agentThinksInArch — before_agent_start is the
+	// only place that modifies it.
 	pi.on("before_agent_start", async () => {
-		if (!state.enabled) return;
+		if (state.enabled && !state.agentThinksInArch) {
+			state.agentThinksInArch = true;
+			persistState();
+			return {
+				message: {
+					customType: "arch-mode",
+					content: ARCH_MODE_MESSAGE,
+					display: false,
+				},
+			};
+		}
 
-		return {
-			message: {
-				customType: "arch-mode",
-				content: ARCH_MODE_MESSAGE,
-				display: false,
-			},
-		};
+		if (!state.enabled && state.agentThinksInArch) {
+			state.agentThinksInArch = false;
+			persistState();
+			return {
+				message: {
+					customType: "arch-mode",
+					content: ARCH_EXIT_MESSAGE,
+					display: false,
+				},
+			};
+		}
 	});
 
 	pi.on("tool_call", async (event) => {

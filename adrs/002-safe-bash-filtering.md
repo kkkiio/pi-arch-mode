@@ -1,8 +1,6 @@
 # ADR-002: Safe-command filtering for bash in architecture mode
 
-**Status:** Accepted  
 **Date:** 2026-05-30  
-**Deciders:** [@kkkiio](https://github.com/kkkiio)
 
 ## Context
 
@@ -58,7 +56,7 @@ Commands explicitly allowed (must match `^\s*<cmd>\b`):
 
 ## What changed from plan-mode
 
-Two patterns were removed from the blocklist because `edit` and `write` are now available in architecture mode (see [ADR-001](./001-allow-edit-write-in-arch-mode.md)), making shell redirection unnecessary to gate:
+Two patterns were removed from the blocklist because `edit` and `write` are now available in architecture mode, making shell redirection unnecessary to gate:
 
 | Removed pattern | Reason |
 |---|---|
@@ -77,4 +75,3 @@ All other patterns are retained unchanged.
 
 - `extensions/guardrail.ts` — `DESTRUCTIVE_PATTERNS`, `SAFE_PATTERNS`, `isSafeCommand()`
 - `extensions/arch-mode.ts` — imports `isSafeCommand` from guardrail
-- [ADR-001: Allow edit/write in architecture mode](./001-allow-edit-write-in-arch-mode.md)
