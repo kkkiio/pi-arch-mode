@@ -21,7 +21,7 @@ invalidating the prefix cache (KV-cache) and forcing a full context recompute.
 
 | Tool | Condition | Mechanism |
 |------|-----------|-----------|
-| `bash` | Command not in `SAFE_PATTERNS` or matches `DESTRUCTIVE_PATTERNS` | `tool_call` → `{ block: true, reason: "..." }` |
+| `bash` | Matches `DESTRUCTIVE_PATTERNS` | `tool_call` → `{ block: true, reason: "..." }` |
 | `edit` / `write` | Path extension not in `WRITEABLE_EXTENSIONS` | `tool_call` → `{ block: true, reason: "..." }` |
 
 ### Stand-down mechanism
@@ -57,10 +57,7 @@ See [ADR-004](./004-stand-down.md) for the full stand-down design.
 
 ### Negative
 
-- **Bash filtering is allowlist + blocklist.** Unknown commands are treated as
-  unsafe by default, which can produce false positives on harmless but uncommon
-  commands. Mitigation: the block reason guides the agent to explain what it
-  was trying to do.
+- **Bash filtering is blocklist-only.** Commands matching destructive patterns are blocked; the risk is false negatives (destructive commands missed by the blocklist). Mitigation: users supervise the agent interactively and can abort at any time.
 
 ## Related
 

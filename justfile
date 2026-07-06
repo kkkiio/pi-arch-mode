@@ -12,4 +12,4 @@ check:
 # Run fast e2e tests (no LLM needed)
 # Set DEEPSEEK_API_KEY in env to also run conversation tests
 test:
-    node --test tests/arch-flow.test.ts
+    node --test tests/*.test.ts

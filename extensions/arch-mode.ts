@@ -54,13 +54,12 @@ When relevant, you can write documentation files (.md, .mdx, .txt, .html, .yaml,
 .yml, .json). For architecture diagrams, write an HTML file embedding Mermaid.js
 — import from https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs
 and use <pre class="mermaid"> blocks. Initialize with:
-```js
+
 mermaid.initialize({
   startOnLoad: true,
   theme: "redux",
   look: "neo"
 });
-```
 
 Do NOT write or modify implementation code (.ts, .js, .rs, .py, .go, etc.).
 Do NOT proactively write plan documents or handoff documents — only when the
@@ -249,7 +248,7 @@ export default function archMode(pi: ExtensionAPI): void {
 			}
 		}
 
-		// Guard bash to safe commands only
+		// Block destructive bash commands
 		if (event.toolName === "bash") {
 			const command = event.input.command as string;
 			if (!isSafeCommand(command)) {

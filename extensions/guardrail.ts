@@ -2,7 +2,7 @@
  * Safety guardrails for architecture mode.
  *
  * Two categories of protection:
- *   1. Bash command filtering — blocklist + allowlist pattern matching
+ *   1. Bash command filtering — blocklist pattern matching
  *   2. File write filtering — extension allowlist for edit/write tools
  */
 
@@ -10,9 +10,8 @@
 //  Bash Command Filtering
 // ═══════════════════════════════════════════════
 //
-// A command is allowed only if it passes BOTH checks:
-//   1. Does NOT match any destructive pattern
-//   2. DOES match at least one safe pattern
+// A command is blocked if it matches ANY destructive pattern.
+// Everything else passes — users are interactively supervising.
 
 // ── Destructive Patterns (blocklist) ──
 
@@ -31,13 +30,17 @@ const DESTRUCTIVE_PATTERNS = [
 	/\btruncate\b/i,
 	/\bdd\b/i,
 	/\bshred\b/i,
+	/\bsed\b(?=[^;&|]*\s-[^\s;&|]*i)/i,
+	/\bpython3?\b/i,
+	/\bperl\b/i,
+	/\bnode\s+-e\b/i,
 	/\bnpm\s+(install|uninstall|update|ci|link|publish)/i,
 	/\byarn\s+(add|remove|install|publish)/i,
 	/\bpnpm\s+(add|remove|install|publish)/i,
 	/\bpip\s+(install|uninstall)/i,
 	/\bapt(-get)?\s+(install|remove|purge|update|upgrade)/i,
 	/\bbrew\s+(install|uninstall|upgrade)/i,
-	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|branch\s+-[dD]|stash|cherry-pick|revert|tag|init|clone)/i,
+	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|restore|checkout|switch|clean|apply|branch\s+-[dD]|stash|cherry-pick|revert|tag|init|clone)/i,
 	/\bsudo\b/i,
 	/\bsu\b/i,
 	/\bkill\b/i,
@@ -50,72 +53,12 @@ const DESTRUCTIVE_PATTERNS = [
 	/\b(vim?|nano|emacs|code|subl)\b/i,
 ];
 
-// ── Safe Patterns (allowlist) ──
-
-const SAFE_PATTERNS = [
-	/^\s*cat\b/,
-	/^\s*head\b/,
-	/^\s*tail\b/,
-	/^\s*less\b/,
-	/^\s*more\b/,
-	/^\s*grep\b/,
-	/^\s*find\b/,
-	/^\s*ls\b/,
-	/^\s*cd\b/,
-	/^\s*pwd\b/,
-	/^\s*echo\b/,
-	/^\s*printf\b/,
-	/^\s*wc\b/,
-	/^\s*sort\b/,
-	/^\s*uniq\b/,
-	/^\s*diff\b/,
-	/^\s*file\b/,
-	/^\s*stat\b/,
-	/^\s*du\b/,
-	/^\s*df\b/,
-	/^\s*tree\b/,
-	/^\s*which\b/,
-	/^\s*whereis\b/,
-	/^\s*type\b/,
-	/^\s*env\b/,
-	/^\s*printenv\b/,
-	/^\s*uname\b/,
-	/^\s*whoami\b/,
-	/^\s*id\b/,
-	/^\s*date\b/,
-	/^\s*cal\b/,
-	/^\s*uptime\b/,
-	/^\s*ps\b/,
-	/^\s*top\b/,
-	/^\s*htop\b/,
-	/^\s*free\b/,
-	/^\s*git\s+(status|log|diff|show|branch|remote|config\s+--get)/i,
-	/^\s*git\s+ls-/i,
-	/^\s*npm\s+(list|ls|view|info|search|outdated|audit)/i,
-	/^\s*yarn\s+(list|info|why|audit)/i,
-	/^\s*node\s+--version/i,
-	/^\s*python\s+--version/i,
-	/^\s*curl\s/i,
-	/^\s*wget\s+-O\s*-/i,
-	/^\s*just\b/,
-	/^\s*make\b/,
-	/^\s*node\b/,
-	/^\s*jq\b/,
-	/^\s*sed\s+-n/i,
-	/^\s*awk\b/,
-	/^\s*rg\b/,
-	/^\s*fd\b/,
-	/^\s*bat\b/,
-	/^\s*eza\b/,
-];
-
 // ── API ──
 
 /** Returns true if the command is safe to execute in architecture mode. */
 export function isSafeCommand(command: string): boolean {
 	const isDestructive = DESTRUCTIVE_PATTERNS.some((p) => p.test(command));
-	const isSafe = SAFE_PATTERNS.some((p) => p.test(command));
-	return !isDestructive && isSafe;
+	return !isDestructive;
 }
 
 // ═══════════════════════════════════════════════

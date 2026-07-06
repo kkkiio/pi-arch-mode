@@ -4,11 +4,28 @@
   <img src="./logo.png" alt="pi-arch-mode logo" width="300" />
 </p>
 
-A Pi extension that puts the coding agent into **architecture mode**. It serves two co-equal purposes:
+A Pi extension that puts the coding agent into **architecture mode** for supervised architecture sessions: understanding an agent-written codebase, exploring design alternatives, and recording decisions without immediately turning the conversation into implementation.
 
-1. **Help you understand your codebase.** In the Vibe Coding era, code is written by agents — you may not have a clear mental model of what exists. Architecture mode bridges that gap, using common architectural patterns (MVC, layered, hexagonal, event-driven, etc.) and UML-level concepts (components, dependencies, data flow, boundaries) as a shared vocabulary to explain your codebase in terms you already know.
+```text
+You: /arch Why is this codebase hard to change?
 
-2. **Help you design its architecture.** Collaborate with the agent to explore alternatives, surface hidden assumptions and trade-offs, and make deliberate architectural decisions — then record them as ADRs.
+Pi: Architecture mode enabled.
+Status: 🏗️ arch mode
+
+Pi -> Agent (hidden): You have entered architecture mode.
+                      Read broadly first.
+                      Explain with architecture vocabulary.
+                      Do not modify implementation code.
+
+Agent: I'll first map the current module boundaries and data flow, then we can
+       decide where the design pressure is coming from.
+```
+
+It serves two co-equal purposes:
+
+1. **Help you understand your codebase.** In the Vibe Coding era, code is often written by agents, so you may not have a clear mental model of what exists. Architecture mode bridges that gap with common architecture vocabulary: MVC, layered systems, hexagonal architecture, event-driven flows, components, dependencies, data flow, and boundaries.
+
+2. **Help you design its architecture.** Collaborate with the agent to explore alternatives, surface hidden assumptions and trade-offs, and make deliberate architectural decisions.
 
 These two purposes form a natural loop: Understand → Design → (Agent builds) → Things drift → Understand again.
 
@@ -51,43 +68,51 @@ Exit architecture mode:
 /arch-off
 ```
 
-In architecture mode, the agent:
-
-- Explores your codebase to understand the current state
-- Explains architecture using common patterns and UML-level concepts
-- Surfaces hidden assumptions and trade-offs
-- Can write documentation files (`.md`, `.mdx`, `.txt`, `.html`, `.yaml`, `.yml`, `.json`) and HTML diagrams with Mermaid.js
-- Cannot modify implementation code (`.ts`, `.js`, `.rs`, `.py`, `.go`, etc.)
-
 The status bar shows `🏗️ arch mode` while active.
-
-### Example session
-
-```
-You: /arch I need to figure out how to handle multi-tenant data isolation
-
-Agent: [reads db/schema.ts, middleware/tenant.ts, config/]
-       I've reviewed the current schema and tenant middleware. The system
-       uses a shared-database approach with a tenant_id column. The main
-       trade-off is row-level security vs. application-level filtering.
-       [writes adrs/005-multi-tenant-isolation.md]
-
-       Key decisions recorded. Run /arch-off when you're ready to move forward.
-
-You: /arch-off
-```
 
 ## Features
 
-- **Exploration-first**: Agent reads and understands before suggesting, not the other way around
-- **Decision recording**: Agent can write ADRs, PRDs, and design notes when alignment is reached
-- **Safe by default**: Implementation code is write-protected; bash is restricted to safe commands. Switching modes has no performance impact — the system prompt and tool set are never modified.
-- **State persistence**: Architecture mode state survives session restarts and `/fork`
+### Architecture Mode Message
+
+Architecture mode lazily sends the agent a hidden context message when the agent needs to learn that the mode changed. The message tells the agent to read broadly first, explain the codebase with architecture vocabulary, collaborate on design decisions, write documentation when relevant, and avoid implementation edits.
+
+The message is added to the transcript. Architecture mode does not replace the system prompt or change the active tool set, so switching modes avoids prefix-cache churn and does not interfere with other extensions' tools.
+
+### Tool Blocking
+
+Architecture mode blocks direct `edit` and `write` calls on non-documentation files. It also blocks bash commands that match known destructive patterns. Exploratory and diagnostic commands can still run when they do not match those patterns, which keeps commands like `gh pr view`, `curl`, and build/status checks usable during supervised sessions.
+
+This is a collaboration guardrail, not a security sandbox. If you need to run an untrusted or adversarial agent, use a real sandbox.
+
+```text
+Agent: [tries to edit src/auth.ts]
+
+Pi: Architecture mode: you can only edit documentation files
+    (.md, .mdx, .txt, .html, .yaml, .yml, .json).
+    "src/auth.ts" looks like implementation code.
+
+Agent: I'll stop before changing code. I can write the proposed design decision
+       to an ADR, or you can exit architecture mode if you want implementation.
+```
+
+### Stand-Down Feedback
+
+When the agent is blocked, architecture mode keeps reminding it for the rest of the turn. Successful follow-up tool results are prepended with a stand-down message so the agent does not treat the block as a puzzle to route around.
+
+```text
+Agent: [tries to edit src/auth.ts]
+Pi: Architecture mode blocked this tool call.
+
+Agent: [then tries another tool]
+Pi -> Agent (tool result): 🛑 Architecture mode: you were blocked from editing
+                           implementation files earlier this turn. Stand down.
+                           Do NOT try workarounds with python, sed, bash, or
+                           any other tool.
+
+Agent: I should pause here. Do you want me to document the proposed change, or
+       should we leave architecture mode?
+```
 
 ## Relationship to automated development loops
 
 Architecture mode is designed to be the **upstream input** for automated agent workflows ("Loop"): align on goals, constraints, and key decisions here, then let automated loops decompose tasks, write code, review, and iterate based on those decisions.
-
-## Development
-
-See [AGENTS.md](./AGENTS.md) for contributor documentation.

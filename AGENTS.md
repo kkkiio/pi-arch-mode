@@ -16,8 +16,8 @@ Architecture mode extension for Pi — collaborative exploration, alignment, and
 
 When modifying `extensions/arch-mode.ts`:
 
-- `DESTRUCTIVE_PATTERNS` and `SAFE_PATTERNS` arrays must remain comprehensive. Every new destructive command pattern added to `DESTRUCTIVE_PATTERNS` requires a corresponding safe alternative in `SAFE_PATTERNS` if one exists.
-- The `isSafeCommand` function must always return `false` for commands not explicitly in `SAFE_PATTERNS`.
+- `DESTRUCTIVE_PATTERNS` array must remain comprehensive. New destructive patterns should be added as they are identified.
+- The `isSafeCommand` function blocks commands matching any `DESTRUCTIVE_PATTERNS` entry; all other commands pass.
 - `edit` and `write` are guarded by `isWriteablePath` in the `tool_call` hook. Any new tool that can modify files requires a corresponding guard.
 
 ### State Persistence Rules
@@ -63,7 +63,7 @@ The extension follows the plan-mode pattern from Pi's examples:
    - `session_start`: Restore `state.enabled` and `agentThinksInArch` from persisted entry, bridge `ExtensionContext`, broadcast initial state
    - `session_shutdown`: Clear status UI
    - `before_agent_start`: **Only modifier of `agentThinksInArch`.** Lazily inject mode/exit messages when `state.enabled != agentThinksInArch`, then set `agentThinksInArch = state.enabled` and persist. `enterMode()`/`exitMode()` do NOT touch `agentThinksInArch` — they only mutate `state.enabled`.
-   - `tool_call`: Guard edit/write to documentation-only files; restrict bash to safe commands
+   - `tool_call`: Guard edit/write to documentation-only files; block destructive bash commands
    - `tool_result`: Append stand-down message when agent was blocked earlier in the turn (ADR-004)
 
 ### Key Design Decisions
@@ -72,7 +72,7 @@ The extension follows the plan-mode pattern from Pi's examples:
 - **Pure `tool_call` hook guardrail**: All behavioral restrictions (unsafe bash, non-document edits) are enforced by the `tool_call` hook. No tools are added or removed on mode switch. Other extensions' tools are always preserved.
 - **No custom tools**: Architecture mode is about understanding and design, not structured interviewing. The agent uses Pi's native tools.
 - **State persisted via `pi.appendEntry`**: Both `enabled` and `agentThinksInArch` are persisted together on every state change. Survives `/fork` (entries are copied to the new session). `agentThinksInArch != enabled` is not a bug — it signals that `before_agent_start` needs to inject a message on the next turn.
-- **Bash filtering uses allowlist + blocklist**: Commands must NOT match destructive patterns AND must match a safe pattern.
+- **Bash filtering uses blocklist only**: Commands matching destructive patterns are blocked; everything else passes.
 - **`/arch` enters, does NOT toggle**: Toggle is anti-pattern for slash commands. Use `/arch` to enter, `/arch-off` to exit.
 
 ### Architecture Mode Message
