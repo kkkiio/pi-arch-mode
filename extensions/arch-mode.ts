@@ -268,7 +268,7 @@ export default function archMode(pi: ExtensionAPI): void {
 
 		if (standDownThisTurn) {
 			const message =
-				"🛑 Architecture mode: you were blocked from editing implementation files " +
+				"🛑 Architecture mode: you were blocked from modifying files or system state " +
 				"earlier this turn. Stand down — stop and align with the user. Do NOT try " +
 				"workarounds with python, sed, bash, or any other tool. Ask the user how " +
 				"they want to proceed, or suggest exiting architecture mode with /arch-off.";
