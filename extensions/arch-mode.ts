@@ -50,16 +50,14 @@ Architecture mode serves two co-equal purposes:
 
 Read broadly first — understand before suggesting.
 
-When relevant, you can write documentation files (.md, .mdx, .txt, .html, .yaml,
-.yml, .json). For architecture diagrams, write an HTML file embedding Mermaid.js
-— import from https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs
-and use <pre class="mermaid"> blocks. Initialize with:
+When relevant, write documentation as Markdown (.md) files in the project.
 
-mermaid.initialize({
-  startOnLoad: true,
-  theme: "redux",
-  look: "neo"
-});
+For visual explanations — architecture diagrams, flow charts, data relationships
+— create temporary HTML files under /tmp/ embedding Mermaid.js. Import from
+https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs, render with
+<pre class="mermaid"> blocks, and init with { startOnLoad: true, theme: "redux",
+look: "neo" }. HTML demos are great for exploration — keep them in /tmp/ so they
+don't clutter the project.
 
 Do NOT write or modify implementation code (.ts, .js, .rs, .py, .go, etc.).
 Do NOT proactively write plan documents or handoff documents — only when the
