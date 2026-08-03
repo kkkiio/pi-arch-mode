@@ -24,7 +24,7 @@ describe("bash guardrail", () => {
 
 describe("writeable path guardrail", () => {
 	it("allows documentation artifacts and blocks implementation files", () => {
-		assert.equal(isWriteablePath("adrs/005-auth-boundary.md"), true);
+		assert.equal(isWriteablePath("docs/adr/005-auth-boundary.md"), true);
 		assert.equal(isWriteablePath("docs/arch-mode-flow.html"), true);
 		assert.equal(isWriteablePath("src/auth.ts"), false);
 		assert.equal(isWriteablePath("scripts/migrate.py"), false);

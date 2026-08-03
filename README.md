@@ -12,10 +12,10 @@ You: /arch Why is this codebase hard to change?
 Pi: Architecture mode enabled.
 Status: 🏗️ arch mode
 
-Pi -> Agent (hidden): You have entered architecture mode.
-                      Read broadly first.
-                      Explain with architecture vocabulary.
-                      Do not modify implementation code.
+Pi -> Agent: You are in architecture mode.
+             You cannot modify implementation code.
+             You cannot run destructive commands.
+             Focus on understanding the codebase and designing its architecture.
 
 Agent: I'll first map the current module boundaries and data flow, then we can
        decide where the design pressure is coming from.
@@ -72,11 +72,18 @@ The status bar shows `🏗️ arch mode` while active.
 
 ## Features
 
-### Architecture Mode Message
+### Mode Message
 
-Architecture mode lazily sends the agent a hidden context message when the agent needs to learn that the mode changed. The message tells the agent to read broadly first, explain the codebase with architecture vocabulary, collaborate on design decisions, write documentation when relevant, and avoid implementation edits.
+Architecture mode lazily injects a short context message when the agent needs to learn that the mode changed (entering or exiting). The message is minimal by design (ADR-006) — it states that architecture mode is active, its two hard rules, and a one-line intent (focus on understanding and design):
 
-The message is added to the transcript. Architecture mode does not replace the system prompt or change the active tool set, so switching modes avoids prefix-cache churn and does not interfere with other extensions' tools.
+- No modifying implementation code
+- No commands known to be destructive
+
+Detailed behavioral guidance (read broadly, architecture vocabulary, documentation workflow) is intentionally left out of the injected message — ask for it in your prompts when you want it.
+
+Both mode-transition messages are delivered with `display: true`, so they appear in the transcript and you see exactly what the agent was told about the mode.
+
+The message is added to the transcript, not the system prompt. Architecture mode does not replace the system prompt or change the active tool set, so switching modes avoids prefix-cache churn and does not interfere with other extensions' tools.
 
 ### Tool Blocking
 

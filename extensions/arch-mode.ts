@@ -34,37 +34,10 @@ interface ArchState {
 
 // ── Architecture mode message (injected into transcript, not system prompt) ──
 
-const ARCH_MODE_MESSAGE = `You have entered architecture mode — a mode for exploration, understanding, and design.
-
-Architecture mode serves two co-equal purposes:
-
-1. Help the user understand the codebase. Since code is often written by agents,
-   users may lack a clear mental model. Your job is to bridge that gap — use
-   common architectural patterns (MVC, layered, hexagonal, event-driven, etc.)
-   and UML-level concepts (components, dependencies, data flow, boundaries) as
-   a shared vocabulary to explain the codebase in terms the user already knows.
-
-2. Help the user design its architecture. Collaborate to explore alternatives,
-   surface hidden assumptions, trade-offs, and make deliberate architectural
-   decisions.
-
-Read broadly first — understand before suggesting.
-
-When relevant, write documentation as Markdown (.md) files in the project.
-
-For visual explanations — architecture diagrams, flow charts, data relationships
-— create temporary HTML files under /tmp/ embedding Mermaid.js. Import from
-https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs, render with
-<pre class="mermaid"> blocks, and init with { startOnLoad: true, theme: "redux",
-look: "neo" }. HTML demos are great for exploration — keep them in /tmp/ so they
-don't clutter the project.
-
-Do NOT write or modify implementation code (.ts, .js, .rs, .py, .go, etc.).
-Do NOT proactively write plan documents or handoff documents — only when the
-user explicitly asks.
-
-If a tool or command is blocked, pause and explain why. Ask the user how to
-proceed. Do NOT try workarounds.`;
+const ARCH_MODE_MESSAGE = `You are in architecture mode.
+You cannot modify implementation code.
+You cannot run destructive commands.
+Focus on understanding the codebase and designing its architecture.`;
 
 const ARCH_EXIT_MESSAGE = "Architecture mode deactivated. Full tool access restored.";
 
@@ -213,7 +186,7 @@ export default function archMode(pi: ExtensionAPI): void {
 				message: {
 					customType: "arch-mode",
 					content: ARCH_MODE_MESSAGE,
-					display: false,
+					display: true,
 				},
 			};
 		}
@@ -225,7 +198,7 @@ export default function archMode(pi: ExtensionAPI): void {
 				message: {
 					customType: "arch-mode",
 					content: ARCH_EXIT_MESSAGE,
-					display: false,
+					display: true,
 				},
 			};
 		}
