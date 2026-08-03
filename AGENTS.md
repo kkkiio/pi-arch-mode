@@ -79,11 +79,11 @@ The extension follows the plan-mode pattern from Pi's examples:
 
 ### Architecture Mode Message
 
-The arch mode message is delivered lazily via `before_agent_start`. A boolean `agentThinksInArch` tracks whether the agent has been told it's in architecture mode. Messages are injected into the transcript only when `state.enabled != agentThinksInArch` — i.e., when the agent's knowledge is stale. This ensures exactly one message per state transition (enter or exit), with no messages pre-queued that can't be canceled on rapid mode switches.
+The arch mode message is delivered lazily via `before_agent_start`. A boolean `agentThinksInArch` tracks whether the agent has been told it's in architecture mode. Messages are injected into the transcript only when `state.enabled != agentThinksInArch` — i.e., when the agent's knowledge is stale. This ensures the agent is told about a mode change at most once, and only when the change is still current at the next agent start — rapid enter/exit before the next turn produces no message at all.
 
-The message has two co-equal purposes: **help the user understand the codebase** (using architectural patterns and UML-level concepts as shared vocabulary) and **help the user design its architecture**.
+The message is **minimal by design** (ADR-006): it states that architecture mode is active, its two hard rules (no implementation code, no commands known to be destructive), and a one-line intent (focus on understanding and design). Detailed behavioral guidance (read broadly, architecture vocabulary, documentation workflow) is intentionally left to the user's prompts; the guardrails in `tool_call`/`tool_result` catch common violations on a best-effort basis (ADR-002).
 
-It guides the agent to read broadly, surface assumptions, discuss trade-offs, and write documentation files when relevant. It explicitly forbids modifying implementation code and proactively writing plans.
+Both mode-transition messages are injected with `display: true`, so they are visible in the transcript — the user sees exactly what the agent was told about the mode.
 
 Pi's default system prompt provides the tool inventory — the arch mode message does not duplicate it.
 

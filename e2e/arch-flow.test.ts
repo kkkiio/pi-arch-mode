@@ -426,7 +426,7 @@ describe("block-guardrails", () => {
 			await prompt(c, "hello");
 			await waitForAgentEnd(c);
 			const enterMsgs = extractArchMessages(c.events);
-			const enterMsg = enterMsgs.find((m) => m.includes("entered architecture mode"));
+			const enterMsg = enterMsgs.find((m) => m.includes("You are in architecture mode"));
 			assert.ok(
 				enterMsg,
 				`should inject ARCH_MODE_MESSAGE on first agent turn. found ${enterMsgs.length} arch messages: ${JSON.stringify(enterMsgs.map((m) => m.slice(0, 60)))}`,
