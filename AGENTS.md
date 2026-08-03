@@ -46,7 +46,7 @@ A single-file Pi extension that registers a command, a custom tool, and lifecycl
 - `tests/guardrail.test.ts` — Unit tests for bash and file-write guardrails
 - `justfile` — Dev recipes (`just fmt`, `just check`, `just test`)
 - `biome.json` — Biome format/lint config
-- `adrs/` — Architecture Decision Records
+- `docs/adr/` — Architecture Decision Records
 - `README.md` — User-facing documentation
 - `AGENTS.md` — This file
 
