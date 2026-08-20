@@ -49,6 +49,29 @@ Two patterns were removed from the blocklist because `edit` and `write` are now 
 
 All other patterns are retained unchanged.
 
+## Update: ignore hyphen-prefixed option fragments (2026-08-20)
+
+Each destructive word is now matched with a negative lookbehind that skips a
+word preceded by a hyphen, via the `destructiveWord()` helper. The read of
+`-ln` in `grep -ln …` / `-su` in `sort -su …` as the `ln` / `su` commands was a
+false positive that blocked legitimate read-only commands. A hyphen-prefixed
+fragment is an option/option cluster, not a command word.
+
+Destructive words elsewhere are still matched as before, so shell prefixes do
+not bypass the blocklist: `/bin/ln a b`, `FOO=1 ln a b`, `xargs ln a b`,
+`sh -c 'ln a b'`, and `if …; then rm …` all remain blocked.
+
+Along the same lines, the `sed` lookahead no longer treats a `(` inside a
+quoted extended-regex script as a boundary, so `sed -E 's/(foo)/bar/' -i file`
+is still blocked.
+
+**Scope boundary:** this is a narrow fix for the hyphen-prefix class, not
+command-position parsing. Destructive words in quoted strings, redirect
+targets, or arguments (`echo 'x; rm …'`, `grep 'x|rm' …`, `cat < rm`) are
+still blocked — they were before this change too. Distinguishing those
+requires quote-aware parsing (a shell parser / AST) and is explicitly out of
+scope for this regex blocklist.
+
 ## Consequences
 
 - Commands with harmless redirections (`pwd 2>/dev/null`, `echo foo > /tmp/bar`) no longer trigger false positives.

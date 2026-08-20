@@ -20,6 +20,25 @@ describe("bash guardrail", () => {
 		assert.equal(isSafeCommand("git clean -fd"), false);
 		assert.equal(isSafeCommand("git apply patch.diff"), false);
 	});
+
+	it("allows combined short flags that merely resemble destructive words", () => {
+		// `-ln` / `-su` are option clusters, not the `ln` / `su` commands
+		assert.equal(isSafeCommand('grep -ln "tree|branch" docs/*.md'), true);
+		assert.equal(isSafeCommand("ls -ln"), true);
+		assert.equal(isSafeCommand("sort -su file"), true);
+	});
+
+	it("still blocks destructive words regardless of shell prefixes", () => {
+		assert.equal(isSafeCommand("ln a b"), false);
+		assert.equal(isSafeCommand("FOO=1 ln a b"), false);
+		assert.equal(isSafeCommand("/bin/ln a b"), false);
+		assert.equal(isSafeCommand("echo ok && ln a b"), false);
+		assert.equal(isSafeCommand("xargs ln a b"), false);
+		assert.equal(isSafeCommand("sh -c 'ln a b'"), false);
+		// in-place sed with a parenthesized extended-regex script
+		assert.equal(isSafeCommand("sed -E 's/(foo)/bar/' -i file"), false);
+		assert.equal(isSafeCommand("sed --in-place 's/a/b/' file"), false);
+	});
 });
 
 describe("writeable path guardrail", () => {
